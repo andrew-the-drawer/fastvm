@@ -25,6 +25,7 @@ type CreateOptions struct {
 type Runtime interface {
 	Create(ctx context.Context, opts CreateOptions) (types.Sandbox, error)
 	Get(ctx context.Context, ref string) (types.Sandbox, error)
+	Stats(ctx context.Context, ref string) (types.SandboxStats, error)
 	List(ctx context.Context) ([]types.Sandbox, error)
 	Exec(ctx context.Context, ref string, argv []string, env map[string]string) (agent.Response, error)
 	Sleep(ctx context.Context, ref string, deep bool) error

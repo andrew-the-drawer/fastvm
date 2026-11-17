@@ -104,6 +104,27 @@ type VMStats struct {
 	BlockWriteByte uint64 `json:"block_write_bytes"`
 	RxBytes        uint64 `json:"rx_bytes"`
 	TxBytes        uint64 `json:"tx_bytes"`
+	// MemoryRSSBytes is the current resident set size of the VMM process,
+	// sampled from /proc/<pid>/status VmRSS.
+	MemoryRSSBytes uint64 `json:"memory_rss_bytes,omitempty"`
+}
+
+// SandboxStats is a point-in-time utilization snapshot for one sandbox.
+type SandboxStats struct {
+	SandboxID       string    `json:"sandbox_id"`
+	Name            string    `json:"name"`
+	State           State     `json:"state"`
+	CPUPercent      float64   `json:"cpu_percent"`
+	VCPUs           int       `json:"vcpus"`
+	MemoryMB        int       `json:"memory_mb"`
+	MemoryRSSBytes  uint64    `json:"memory_rss_bytes"`
+	UptimeSeconds   int64     `json:"uptime_seconds"`
+	WakeCount       int       `json:"wake_count"`
+	BlockReadBytes  uint64    `json:"block_read_bytes"`
+	BlockWriteBytes uint64    `json:"block_write_bytes"`
+	RxBytes         uint64    `json:"rx_bytes"`
+	TxBytes         uint64    `json:"tx_bytes"`
+	CapturedAt      time.Time `json:"captured_at"`
 }
 
 // Now is a test seam for time.

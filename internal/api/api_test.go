@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"fastvm/internal/agent"
 	"fastvm/internal/manager"
@@ -24,6 +25,7 @@ type fakeRT struct {
 	exec    agent.Response
 	events  []types.Event
 	deleted string
+	stats   types.SandboxStats
 	slept   bool
 	deep    bool
 	woken   bool
@@ -35,6 +37,9 @@ func (f *fakeRT) Create(_ context.Context, opts manager.CreateOptions) (types.Sa
 }
 func (f *fakeRT) Get(context.Context, string) (types.Sandbox, error) {
 	return f.sb, f.err
+}
+func (f *fakeRT) Stats(context.Context, string) (types.SandboxStats, error) {
+	return f.stats, f.err
 }
 func (f *fakeRT) List(context.Context) ([]types.Sandbox, error) {
 	return []types.Sandbox{f.sb}, f.err
@@ -129,6 +134,60 @@ func TestListAndGet(t *testing.T) {
 	code, body = call(t, ts, "GET", "/v1/sandboxes/missing", nil)
 	if code != 404 || !bytes.Contains(body, []byte("not found")) {
 		t.Fatalf("missing code=%d body=%s", code, body)
+	}
+}
+
+func TestSandboxStats(t *testing.T) {
+	ts, rt, _ := server(t)
+	rt.stats = types.SandboxStats{
+		SandboxID: "sb-1", Name: "web", State: types.StateRunning,
+		CPUPercent: 3.25, VCPUs: 2, MemoryMB: 512, MemoryRSSBytes: 104857600,
+		UptimeSeconds: 132, WakeCount: 1,
+		RxBytes: 1024, TxBytes: 2048,
+		CapturedAt: time.Date(2026, 11, 17, 8, 0, 0, 0, time.UTC),
+	}
+	code, body := call(t, ts, "GET", "/v1/sandboxes/sb-1/stats", nil)
+	if code != 200 {
+		t.Fatalf("stats code=%d body=%s", code, body)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("stats body %s: %v", body, err)
+	}
+	want := map[string]string{
+		"sandbox_id":        `"sb-1"`,
+		"name":              `"web"`,
+		"state":             `"Running"`,
+		"cpu_percent":       "3.25",
+		"vcpus":             "2",
+		"memory_mb":         "512",
+		"memory_rss_bytes":  "104857600",
+		"uptime_seconds":    "132",
+		"wake_count":        "1",
+		"block_read_bytes":  "0",
+		"block_write_bytes": "0",
+		"rx_bytes":          "1024",
+		"tx_bytes":          "2048",
+		"captured_at":       `"2026-11-17T08:00:00Z"`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("stats body has %d keys, want %d: %s", len(got), len(want), body)
+	}
+	for key, wv := range want {
+		raw, ok := got[key]
+		if !ok {
+			t.Errorf("stats missing key %q: %s", key, body)
+			continue
+		}
+		if string(raw) != wv {
+			t.Errorf("key %q = %s, want %s", key, raw, wv)
+		}
+	}
+
+	rt.err = manager.ErrNotFound
+	code, body = call(t, ts, "GET", "/v1/sandboxes/missing/stats", nil)
+	if code != 404 || !bytes.Contains(body, []byte(`"not_found"`)) {
+		t.Fatalf("missing stats code=%d body=%s", code, body)
 	}
 }
 

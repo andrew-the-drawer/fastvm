@@ -48,6 +48,41 @@ func TestParseProcStat(t *testing.T) {
 	}
 }
 
+func TestParseProcStatusRSS(t *testing.T) {
+	body := "Name:\tfirecracker\n" +
+		"Umask:\t0022\n" +
+		"State:\tS (sleeping)\n" +
+		"VmPeak:\t 1048576 kB\n" +
+		"VmSize:\t  512000 kB\n" +
+		"VmRSS:\t  102400 kB\n" +
+		"VmData:\t   10000 kB\n" +
+		"Threads:\t7\n"
+	got, err := parseProcStatusRSS(body)
+	if err != nil {
+		t.Fatalf("parseProcStatusRSS: %v", err)
+	}
+	if want := uint64(102400 * 1024); got != want {
+		t.Fatalf("RSS = %d, want %d", got, want)
+	}
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing VmRSS", body: "Name:\tfirecracker\nVmSize:\t 1024 kB\n"},
+		{name: "empty body", body: ""},
+		{name: "not a number", body: "VmRSS:\t lots kB\n"},
+		{name: "missing unit", body: "VmRSS:\t 102400\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseProcStatusRSS(tc.body); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
 func TestReadVMStatsBusyProcess(t *testing.T) {
 	// A shell busy-loop must accumulate USER_HZ ticks within the timeout.
 	cmd := exec.Command("/bin/sh", "-c", "i=0; while :; do i=$((i+1)); done")
@@ -66,6 +101,11 @@ func TestReadVMStatsBusyProcess(t *testing.T) {
 			t.Fatalf("readVMStats: %v", err)
 		}
 		if st.VCPUTimeNS > 0 {
+			// A live shell must report resident memory; /proc/<pid>/status
+			// always carries VmRSS for a running process.
+			if st.MemoryRSSBytes == 0 {
+				t.Fatal("live process reported VmRSS = 0")
+			}
 			break
 		}
 		if time.Now().After(deadline) {

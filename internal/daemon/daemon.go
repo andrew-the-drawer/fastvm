@@ -160,11 +160,21 @@ type runtime struct {
 	cpu    *lifecycle.CPUWindow
 	events chan agent.Event
 
-	lastCPU      uint64
-	lastBlock    uint64
-	lastNetRx    uint64
-	lastNetTx    uint64
-	lastTick     time.Time
+	lastCPU   uint64
+	lastBlock uint64
+	lastNetRx uint64
+	lastNetTx uint64
+	lastTick  time.Time
+
+	// Latest sampler snapshot, served by Stats without touching /proc.
+	cpuPct          float64
+	blockReadBytes  uint64
+	blockWriteBytes uint64
+	memoryRSSBytes  uint64
+	rxBytes         uint64
+	txBytes         uint64
+	statsAt         time.Time
+
 	execActive   int
 	workload     []string
 	workloadEnv  map[string]string
@@ -442,6 +452,55 @@ func joinSandboxIDs(list []*types.Sandbox) string {
 		ids = append(ids, sb.ID)
 	}
 	return strings.Join(ids, ", ")
+}
+
+// Stats returns a utilization snapshot for one sandbox. Utilization comes from
+// the per-second idle sampler's cache (rt.sb / sampleLocked), so a request never
+// reads /proc; a sandbox record without a live runtime reports zero
+// utilization. CPU is reported only for live states (Running/Idle).
+func (d *Daemon) Stats(ctx context.Context, ref string) (types.SandboxStats, error) {
+	sb, err := d.Get(ctx, ref)
+	if err != nil {
+		return types.SandboxStats{}, err
+	}
+	out := types.SandboxStats{
+		SandboxID: sb.ID, Name: sb.Name, State: sb.State,
+		VCPUs: sb.VCPUs, MemoryMB: sb.MemoryMB, WakeCount: sb.WakeCount,
+		CapturedAt: d.now(),
+	}
+	if up := d.now().Sub(sb.CreatedAt); up > 0 {
+		out.UptimeSeconds = int64(up / time.Second)
+	}
+	rt := d.lookupRuntime(sb.ID)
+	if rt == nil {
+		return out, nil
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.sb.ID != "" {
+		out.Name = rt.sb.Name
+		out.State = rt.sb.State
+		out.WakeCount = rt.sb.WakeCount
+		out.VCPUs = rt.sb.VCPUs
+		out.MemoryMB = rt.sb.MemoryMB
+	}
+	if out.State == types.StateRunning || out.State == types.StateIdle {
+		out.CPUPercent = rt.cpuPct
+		if out.CPUPercent < 0 {
+			out.CPUPercent = 0
+		} else if out.CPUPercent > 100 {
+			out.CPUPercent = 100
+		}
+	}
+	out.MemoryRSSBytes = rt.memoryRSSBytes
+	out.BlockReadBytes = rt.blockReadBytes
+	out.BlockWriteBytes = rt.blockWriteBytes
+	out.RxBytes = rt.rxBytes
+	out.TxBytes = rt.txBytes
+	if !rt.statsAt.IsZero() {
+		out.CapturedAt = rt.statsAt
+	}
+	return out, nil
 }
 
 func (d *Daemon) List(ctx context.Context) ([]types.Sandbox, error) {
@@ -931,6 +990,14 @@ func (d *Daemon) sampleLocked(rt *runtime, sb *types.Sandbox) {
 	if rt.vm != nil {
 		stats, err := rt.vm.Stats(context.Background())
 		if err == nil {
+			// Cache the latest snapshot for manager.Runtime.Stats; cpuPct is the
+			// instantaneous value for this sample interval (0 when no CPU time
+			// was used since the previous sample).
+			rt.statsAt = now
+			rt.cpuPct = 0
+			rt.memoryRSSBytes = stats.MemoryRSSBytes
+			rt.blockReadBytes = stats.BlockReadByte
+			rt.blockWriteBytes = stats.BlockWriteByte
 			if rt.lastCPU == 0 {
 				rt.lastCPU = stats.VCPUTimeNS
 			} else if stats.VCPUTimeNS > rt.lastCPU {
@@ -940,6 +1007,7 @@ func (d *Daemon) sampleLocked(rt *runtime, sb *types.Sandbox) {
 					pct = 0
 				}
 				rt.cpu.Add(now, pct)
+				rt.cpuPct = pct
 				rt.lastCPU = stats.VCPUTimeNS
 			}
 			block := stats.BlockReadByte + stats.BlockWriteByte
@@ -953,6 +1021,8 @@ func (d *Daemon) sampleLocked(rt *runtime, sb *types.Sandbox) {
 		}
 	}
 	if st, err := d.net.Stats(context.Background(), sb.ID); err == nil {
+		rt.statsAt = now
+		rt.rxBytes, rt.txBytes = st.RxBytes, st.TxBytes
 		delta := (st.RxBytes - rt.lastNetRx) + (st.TxBytes - rt.lastNetTx)
 		rt.lastNetRx, rt.lastNetTx = st.RxBytes, st.TxBytes
 		if delta > 256 { // ignore pure ACKs/keepalives

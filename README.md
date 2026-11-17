@@ -34,6 +34,9 @@ wake it, and delete it.
   `/etc/resolv.conf` with host resolvers mirrored).
 - **HTTP/JSON API + CLI**, event log, sandbox introspection, and graceful
   daemon-restart adoption of active sandboxes.
+- **Web console** (`console/`): Keycloak OIDC sign-in, a live sandbox table with
+  per-VM CPU/memory utilization, lifecycle actions, and an interactive exec
+  terminal.
 
 ## Try it
 
@@ -63,6 +66,32 @@ bin/fastvm rm web
 Full walkthrough — config, images, PTY shell, wake-on-network, troubleshooting:
 **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**.
 
+## Web console
+
+`console/` is a React + Vite+ web UI for the daemon: sign in with Keycloak (OIDC
+authorization code + PKCE), watch sandboxes boot, pause, sleep and wake, act on
+them, track live CPU/memory utilization, and open an interactive shell inside any
+VM. The terminal is [ghostty-web](https://github.com/coder/ghostty-web) —
+Ghostty's VT100 parser compiled to WebAssembly. It ships dark and light themes
+plus a follow-the-system mode, switched next to the user avatar.
+
+![fastvm console in light and dark themes](docs/console-themes.png)
+
+Exec into a sandbox from the browser — the console streams a real PTY over a
+WebSocket:
+
+![fastvm console exec terminal](docs/console-terminal.png)
+
+```sh
+docker compose -f console/compose.yaml up -d    # Keycloak; test user demo / demo
+cd console && pnpm install && pnpm exec vp dev  # Node 24+, http://localhost:5173
+```
+
+It talks to `fastvmd` same-origin: a dev/preview proxy forwards `/v1/*` to the
+daemon's unix socket (`FASTVM_SOCKET`). See
+[console/README.md](console/README.md) for setup, OIDC configuration, the API it
+uses, and production notes.
+
 ## Requirements
 
 Linux x86_64 with KVM, [Firecracker](https://firecracker-microvm.github.io/)
@@ -78,6 +107,7 @@ only used to build base disks and template images.
 | [Getting started](docs/GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Design](docs/DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, roadmap |
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |
+| [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 
 ## Development

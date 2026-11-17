@@ -1,0 +1,221 @@
+# fastvm console
+
+Web console for **fastvm**: a browser UI on top of the `fastvmd` HTTP/JSON API
+(sandbox lifecycle, stats, images, event log). Built with React 19, TypeScript,
+Ant Design, TanStack Query, Base UI, and [Vite+](https://viteplus.dev) (`vp`).
+
+The console talks to the daemon **same-origin**: a small Vite plugin proxies
+`/v1/*` (including WebSocket upgrades) to `fastvmd`'s unix socket in both dev and
+preview, so no CORS or direct socket access from the browser is needed. Themes:
+dark, light, or follow the system appearance via the switch next to the user
+avatar (persisted per browser).
+
+![fastvm console](../docs/console.png)
+
+## Prerequisites
+
+| Requirement       | Notes                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| Node 24.11+ / 26+ | tested with 24.14.0, pinned in `.node-version`; Vite+ does not support Node 25                 |
+| pnpm              | used as the package manager; `vp` is run through `pnpm exec`                                   |
+| Docker            | only for the Keycloak OIDC stack in `console/compose.yaml`                                     |
+| fastvmd           | built from the repo root; needs root/`CAP_NET_ADMIN` for TAP/veth/nftables, or user namespaces |
+
+## Quickstart
+
+From the repository root:
+
+```sh
+# 1. Keycloak (realm `fastvm`, demo user demo / demo)
+docker compose -f console/compose.yaml up -d
+
+# 2. Console environment (defaults match the compose stack; edit as needed)
+cp console/.env.example console/.env
+
+# 3. Install dependencies
+cd console
+pnpm install            # or: pnpm exec vp install
+
+# 4. In another (root) shell, from the repo root: build and start the daemon
+make build
+sudo make start         # fastvmd -config hack/config.yaml, socket /run/fastvm/fastvm.sock
+make image              # build hack/Dockerfile.example -> demo:latest base disk
+
+# 5. Dev server (HMR)
+pnpm exec vp dev        # http://localhost:5173
+```
+
+Open http://localhost:5173 and sign in through Keycloak with `demo` / `demo`.
+
+## Scripts
+
+All commands run in `console/` through the Vite+ CLI:
+
+| Command                | What it does                                     |
+| ---------------------- | ------------------------------------------------ |
+| `pnpm exec vp dev`     | dev server at :5173 with the `/v1` proxy         |
+| `pnpm exec vp build`   | typecheck + production build into `dist/`        |
+| `pnpm exec vp preview` | serve `dist/` locally, also with the `/v1` proxy |
+| `pnpm exec vp test`    | unit tests (Vitest + jsdom)                      |
+| `pnpm exec vp check`   | format, lint, and typecheck                      |
+| `pnpm exec vp install` | install/refresh dependencies                     |
+
+## The unix-socket proxy
+
+`fastvmd` listens on a Unix socket (`FASTVM_SOCKET`, default
+`/run/fastvm/fastvm.sock`), which a browser cannot fetch directly. The plugin in
+[`vite-plugins/fastvm-proxy.ts`](vite-plugins/fastvm-proxy.ts) is registered via
+`configureServer` (dev) and `configurePreviewServer` (preview). It:
+
+- intercepts only request paths starting with `/v1/`;
+- forwards method, headers, and body to the daemon with
+  `http.request({ socketPath, path, method, headers })` and pipes the response
+  back unchanged;
+- tunnels WebSocket upgrades for `/v1/*` (the exec terminal) by connecting to
+  the same unix socket and raw-piping the upgraded client socket in both
+  directions; upgrades outside `/v1/` (e.g. Vite HMR) are left untouched;
+- answers plain HTTP with HTTP 502 and a JSON body
+  `{"error": "fastvmd unavailable: ..."}` when the socket is unreachable, and
+  destroys the client socket if the WebSocket upgrade cannot reach the daemon.
+
+The socket path is a **server-side** environment variable, not a `VITE_*` value:
+
+```sh
+FASTVM_SOCKET=/tmp/fastvm/custom.sock pnpm exec vp dev
+```
+
+Restart the dev server after changing `FASTVM_SOCKET`.
+
+## OIDC configuration
+
+Browser-visible settings live in `console/.env` (copy `.env.example`; `.env` is
+git-ignored). They are validated by `src/lib/config.ts`.
+
+| Variable                  | Default                 |
+| ------------------------- | ----------------------- |
+| `VITE_KEYCLOAK_URL`       | `http://localhost:8081` |
+| `VITE_KEYCLOAK_REALM`     | `fastvm`                |
+| `VITE_KEYCLOAK_CLIENT_ID` | `fastvm-console`        |
+| `VITE_KEYCLOAK_SCOPE`     | `openid profile email`  |
+
+## API endpoints used
+
+Same-origin `/v1/*`, implemented in `src/lib/api.ts`:
+
+| Method   | Path                           | Used for                                  |
+| -------- | ------------------------------ | ----------------------------------------- |
+| `GET`    | `/v1/version`                  | daemon version                            |
+| `GET`    | `/v1/sandboxes`                | sandbox list (polled every 3s)            |
+| `GET`    | `/v1/sandboxes/{ref}`          | one sandbox (by name or id)               |
+| `GET`    | `/v1/sandboxes/{ref}/stats`    | live utilization (polled every 2s)        |
+| `GET`    | `/v1/sandboxes/{ref}/shell/ws` | interactive PTY shell (WebSocket upgrade) |
+| `GET`    | `/v1/images`                   | base disk images                          |
+| `GET`    | `/v1/events?limit=N`           | lifecycle event log (polled every 5s)     |
+| `POST`   | `/v1/sandboxes`                | create a sandbox                          |
+| `POST`   | `/v1/sandboxes/{ref}/sleep`    | `{ "deep": bool }`                        |
+| `POST`   | `/v1/sandboxes/{ref}/wake`     | wake a paused/dormant sandbox             |
+| `DELETE` | `/v1/sandboxes/{ref}`          | delete a sandbox                          |
+
+## Terminal / exec
+
+`GET /v1/sandboxes/{ref}/shell/ws` upgrades to a WebSocket that bridges the
+sandbox's PTY. Query parameters: `cols`, `rows`, and repeatable `argv` (fastvmd
+defaults to `/bin/sh` when no `argv` is given).
+
+Protocol:
+
+| Direction       | Frame  | Meaning                                           |
+| --------------- | ------ | ------------------------------------------------- |
+| client → server | binary | raw PTY input bytes                               |
+| client → server | text   | `{"type":"resize","cols":N,"rows":N}`             |
+| server → client | binary | raw PTY output bytes                              |
+| server → client | text   | `{"type":"exit","code":N}` then the server closes |
+| server → client | text   | `{"type":"error","message":"..."}` then it closes |
+
+`src/lib/shell.ts` implements the typed client used by the terminal UI:
+
+```ts
+const handle = connectShell(
+  "web",
+  { cols: 80, rows: 24 },
+  {
+    onOpen: () => {},
+    onOutput: (bytes: Uint8Array) => term.write(bytes),
+    onExit: (code: number | null) => {},
+    onError: (message: string) => {},
+  },
+);
+handle.sendInput("ls\r");
+handle.resize(120, 40);
+handle.close();
+```
+
+`buildShellUrl(ref, { cols, rows, argv? })` (and the
+`buildShellUrlFromLocation(...)` test seam) expose the URL; `connectShell`
+returns `{ state, sendInput, resize, close }` where `state` is `"connecting" |
+"open" | "closed"`. A close without an exit frame is surfaced as `onExit(null)`
+for a clean close (code 1000) and `onError(...)` otherwise.
+
+The terminal renderer is [ghostty-web](https://github.com/coder/ghostty-web)
+(Ghostty's VT parser compiled to WASM, WASM embedded in the package); the UI
+dynamic-imports it so that large payload is not part of the initial console
+bundle.
+
+The shell is **unauthenticated** exactly like the rest of the fastvmd API — the
+proxy adds no authorization, so anyone who can reach the console/proxy origin
+can open a shell. For production, terminate authentication in front of the
+console and the daemon (see [Security model](#security-model)).
+
+## Security model
+
+Keycloak authenticates people, but `fastvmd`'s API is **not** authenticated:
+the Vite proxy forwards `/v1/*` to the unix socket without checking the OIDC
+token, so the sign-in screen is a UX gate rather than an API authorization
+layer. Keep the daemon socket on a trusted host/localhost, and for a real
+deployment terminate authentication in front of both the console and the daemon
+(for example with `oauth2-proxy` or an authenticating reverse proxy), exposing
+only the proxied API — never the raw socket.
+
+## Production
+
+`pnpm exec vp build` emits static assets in `dist/`. Serve them behind a reverse
+proxy that:
+
+1. maps `/v1/` to the `fastvmd` unix socket (e.g. nginx
+   `proxy_pass http://unix:/run/fastvm/fastvm.sock:/v1/;`), and
+2. serves `index.html` for SPA routes.
+
+Configure the Keycloak client's redirect URI (and web origins) for the deployed
+console origin, e.g. `https://console.example.com/*`, in the realm/client
+settings. The browser build reads the `VITE_KEYCLOAK_*` values at build time, so
+rebuild (or bake them into the build env) for production values.
+
+## Layout
+
+```
+console/
+├── compose.yaml             # Keycloak dev stack (realm import, port 8081)
+├── keycloak/
+│   └── realm-fastvm.json    # exported realm: fastvm-console client + demo user
+├── vite.config.ts           # Vite+ config: fmt/lint/staged, /v1 proxy, jsdom tests
+├── vite-plugins/
+│   └── fastvm-proxy.ts      # /v1/* -> fastvmd unix socket (dev + preview)
+├── index.html
+├── .env.example             # VITE_KEYCLOAK_* (defaults match compose)
+├── src/
+│   ├── main.tsx             # QueryClientProvider + AuthProvider + App
+│   ├── App.tsx              # auth gate: loading / login / dashboard
+│   ├── auth/                # OIDC + PKCE (pkce.ts, oidc.ts, AuthProvider, session)
+│   ├── lib/                 # zod API types, fetch client, Query hooks, shell WS client
+│   ├── pages/               # LoginPage, DashboardPage
+│   ├── components/          # header, table, utilization, actions, dialogs, drawer, exec terminal
+│   ├── utils/               # formatting + error helpers
+│   ├── theme.ts             # antd dark/light palettes -> buildTheme()
+│   ├── theme/               # theme mode (dark/light/auto), provider, system sync
+│   ├── styles.css
+│   └── test/setup.ts        # jest-dom matchers for Vitest
+├── README.md
+└── pnpm-lock.yaml
+```
+
+---

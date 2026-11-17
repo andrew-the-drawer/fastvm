@@ -24,6 +24,8 @@ const userHZ = 100
 //     capacity by the caller, so it is a faithful "is the sandbox busy" signal.
 //   - Block I/O is /proc/<pid>/io read_bytes/write_bytes, which count bytes
 //     fetched from storage, not page-cache hits.
+//   - Memory RSS is /proc/<pid>/status VmRSS, the resident set of the whole
+//     VMM process (guest memory plus device/API overhead).
 //   - Network counters live in the switch, not the VMM, and stay zero here.
 func readVMStats(pid int) (vmm.Stats, error) {
 	var st vmm.Stats
@@ -38,6 +40,11 @@ func readVMStats(pid int) (vmm.Stats, error) {
 	}
 	st.BlockReadByte = read
 	st.BlockWriteByte = write
+	rss, err := vmmRSSBytes(pid)
+	if err != nil {
+		return st, err
+	}
+	st.MemoryRSSBytes = rss
 	return st, nil
 }
 
@@ -87,6 +94,37 @@ func parseProcStat(s string) (utime, stime uint64, err error) {
 		return 0, 0, fmt.Errorf("parse stime: %w", err)
 	}
 	return utime, stime, nil
+}
+
+// vmmRSSBytes reads VmRSS from /proc/<pid>/status and converts kB to bytes.
+func vmmRSSBytes(pid int) (uint64, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return 0, fmt.Errorf("firecracker: stats: read /proc/%d/status: %w", pid, err)
+	}
+	return parseProcStatusRSS(string(data))
+}
+
+// parseProcStatusRSS extracts VmRSS (reported in kB) from a /proc/<pid>/status
+// body and returns it in bytes. A missing VmRSS line is an error: callers read
+// stats only for a live VMM process, which always reports it.
+func parseProcStatusRSS(s string) (uint64, error) {
+	for _, line := range strings.Split(s, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok || strings.TrimSpace(key) != "VmRSS" {
+			continue
+		}
+		fields := strings.Fields(value)
+		if len(fields) == 0 || !strings.EqualFold(fields[len(fields)-1], "kB") {
+			return 0, fmt.Errorf("firecracker: stats: malformed VmRSS line %q", line)
+		}
+		kb, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("firecracker: stats: parse VmRSS: %w", err)
+		}
+		return kb * 1024, nil
+	}
+	return 0, errors.New("firecracker: stats: /proc status missing VmRSS")
 }
 
 // vmmBlockIO reads read_bytes/write_bytes from /proc/<pid>/io.

@@ -1,0 +1,24 @@
+# Keycloak for local development of the fastvm web console.
+#
+#   docker compose -f console/compose.yaml up -d
+#   open http://localhost:8081  (admin console: admin / admin)
+#
+# The fastvm realm (client `fastvm-console`, test user `demo` / `demo`) is
+# imported on startup from ./keycloak/realm-fastvm.json.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.0
+    container_name: fastvm-keycloak
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-fastvm.json:/opt/keycloak/data/import/realm-fastvm.json:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 30

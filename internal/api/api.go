@@ -52,9 +52,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/sandboxes", s.handleList)
 	s.mux.HandleFunc("POST /v1/sandboxes", s.handleCreate)
 	s.mux.HandleFunc("GET /v1/sandboxes/{ref}", s.handleGet)
+	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/stats", s.handleStats)
 	s.mux.HandleFunc("DELETE /v1/sandboxes/{ref}", s.handleDelete)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/exec", s.handleExec)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/shell", s.handleShell)
+	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/shell/ws", s.handleShellWS)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/sleep", s.handleSleep)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/wake", s.handleWake)
 	s.mux.HandleFunc("GET /v1/events", s.handleEvents)
@@ -214,6 +216,15 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sb)
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.rt.Stats(r.Context(), r.PathValue("ref"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {

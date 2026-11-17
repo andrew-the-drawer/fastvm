@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/cilium/ebpf v0.22.0
+	github.com/coder/websocket v1.8.15
 	github.com/mdlayher/vsock v1.4.0
 	github.com/vishvananda/netlink v1.3.1
 	go.etcd.io/bbolt v1.5.0

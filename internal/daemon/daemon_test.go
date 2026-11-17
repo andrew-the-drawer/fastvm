@@ -510,6 +510,132 @@ func TestSleepDeepOffloadAndWake(t *testing.T) {
 	}
 }
 
+func TestStatsFromSamplerCache(t *testing.T) {
+	h := newHarness(t)
+	sb := h.create(t)
+	ctx := context.Background()
+	rt := h.runtime(t, sb.ID)
+	vm := h.drv.lastVM()
+	vm.mu.Lock()
+	vm.stats = types.VMStats{
+		VCPUTimeNS: 1_000_000, BlockReadByte: 100, BlockWriteByte: 200,
+		MemoryRSSBytes: 104857600,
+	}
+	vm.mu.Unlock()
+
+	// The first sample only establishes the CPU baseline.
+	h.clock.Advance(time.Second)
+	rt.mu.Lock()
+	h.d.sampleLocked(rt, &rt.sb)
+	rt.mu.Unlock()
+
+	// Second sample: 65ms of CPU on 2 vCPUs over 1s = 3.25%.
+	vm.mu.Lock()
+	vm.stats.VCPUTimeNS += 65_000_000
+	vm.mu.Unlock()
+	h.net.mu.Lock()
+	h.net.stats = types.NetStats{RxBytes: 1024, TxBytes: 2048}
+	h.net.mu.Unlock()
+	h.clock.Advance(time.Second)
+	rt.mu.Lock()
+	h.d.sampleLocked(rt, &rt.sb)
+	rt.mu.Unlock()
+
+	got, err := h.d.Stats(ctx, sb.Name)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.SandboxID != sb.ID || got.Name != "web" || got.State != types.StateRunning {
+		t.Fatalf("identity = %+v", got)
+	}
+	if got.CPUPercent != 3.25 {
+		t.Errorf("cpu_percent = %v, want 3.25", got.CPUPercent)
+	}
+	if got.VCPUs != 2 || got.MemoryMB != 512 {
+		t.Errorf("vcpus/memory_mb = %d/%d", got.VCPUs, got.MemoryMB)
+	}
+	if got.MemoryRSSBytes != 104857600 {
+		t.Errorf("memory_rss_bytes = %d", got.MemoryRSSBytes)
+	}
+	if got.BlockReadBytes != 100 || got.BlockWriteBytes != 200 {
+		t.Errorf("block_read/write = %d/%d", got.BlockReadBytes, got.BlockWriteBytes)
+	}
+	if got.RxBytes != 1024 || got.TxBytes != 2048 {
+		t.Errorf("rx/tx = %d/%d", got.RxBytes, got.TxBytes)
+	}
+	if got.UptimeSeconds != 2 {
+		t.Errorf("uptime_seconds = %d, want 2", got.UptimeSeconds)
+	}
+	if got.WakeCount != 0 {
+		t.Errorf("wake_count = %d", got.WakeCount)
+	}
+	if !got.CapturedAt.Equal(h.clock.Now()) {
+		t.Errorf("captured_at = %v, want %v", got.CapturedAt, h.clock.Now())
+	}
+}
+
+func TestStatsPausedReportsZeroCPU(t *testing.T) {
+	h := newHarness(t)
+	sb := h.create(t)
+	rt := h.runtime(t, sb.ID)
+	rt.mu.Lock()
+	rt.cpuPct = 42 // a stale sample from before the pause
+	rt.mu.Unlock()
+	if err := h.d.Sleep(context.Background(), sb.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.d.Stats(context.Background(), sb.ID)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.State != types.StatePaused {
+		t.Fatalf("state = %s, want Paused", got.State)
+	}
+	if got.CPUPercent != 0 {
+		t.Fatalf("paused cpu_percent = %v, want 0", got.CPUPercent)
+	}
+}
+
+func TestStatsUnknownRef(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.d.Stats(context.Background(), "nope"); !errors.Is(err, manager.ErrNotFound) {
+		t.Fatalf("Stats(unknown) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestStatsWithoutRuntimeReturnsRecord(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	rec := &types.Sandbox{
+		ID: "gone123", Name: "gone", State: types.StateFailed,
+		VCPUs: 4, MemoryMB: 1024, WakeCount: 3,
+		CreatedAt: h.clock.Now().Add(-time.Minute),
+	}
+	if err := h.st.PutSandbox(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.d.Stats(ctx, "gone")
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.SandboxID != rec.ID || got.Name != "gone" || got.State != types.StateFailed {
+		t.Fatalf("record fields = %+v", got)
+	}
+	if got.CPUPercent != 0 || got.MemoryRSSBytes != 0 || got.BlockReadBytes != 0 ||
+		got.BlockWriteBytes != 0 || got.RxBytes != 0 || got.TxBytes != 0 {
+		t.Fatalf("utilization should be zero without a runtime: %+v", got)
+	}
+	if got.UptimeSeconds != 60 {
+		t.Errorf("uptime_seconds = %d, want 60", got.UptimeSeconds)
+	}
+	if got.VCPUs != 4 || got.MemoryMB != 1024 || got.WakeCount != 3 {
+		t.Errorf("record bookkeeping = %+v", got)
+	}
+	if got.CapturedAt.IsZero() {
+		t.Error("captured_at must be set even without a live sample")
+	}
+}
+
 func TestIdlePredicateAutoPause(t *testing.T) {
 	h := newHarness(t)
 	sb := h.create(t)

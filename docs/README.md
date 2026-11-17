@@ -6,6 +6,7 @@
 | [Getting started](GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Limitations](LIMITATIONS.md) | What v0.1 does not do yet, and intentional non-goals |
 | [CoW volumes](SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification, snapshot/CoW checks |
+| [Web console](../console/README.md) | OIDC login, sandbox dashboard, live utilization, dev proxy |
 
 The top-level [README](../README.md) has the project overview and quickstart.
 
@@ -39,4 +40,5 @@ bpf/                   L2 switch eBPF program
 docs/                  DESIGN.md, GETTING_STARTED.md, LIMITATIONS.md, SETUP_COW_VOLUME.md
 test/e2e/              gated end-to-end tests + asset fetch script
 hack/                  runnable demo, config, and setup helpers
+console/               React + Vite+ web console (OIDC, dashboard, live stats)
 ```
