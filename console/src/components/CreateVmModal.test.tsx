@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { App as AntdApp } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { ToastProvider } from "../ui";
 import { CreateVmModal } from "./CreateVmModal";
 import { installDomStubs } from "./test-dom";
 
@@ -46,16 +46,17 @@ afterEach(cleanup);
 function renderModal() {
   const onClose = vi.fn();
   const utils = render(
-    <AntdApp>
+    <ToastProvider>
       <CreateVmModal open onClose={onClose} />
-    </AntdApp>,
+    </ToastProvider>,
   );
   return { ...utils, onClose };
 }
 
-async function chooseImage() {
-  fireEvent.mouseDown(screen.getByRole("combobox"));
-  fireEvent.click(await screen.findByText("demo:latest · 64 MiB"));
+function chooseImage() {
+  fireEvent.change(screen.getByRole("combobox", { name: /Base image/ }), {
+    target: { value: "sha256:abc123" },
+  });
 }
 
 function submit() {
@@ -65,7 +66,7 @@ function submit() {
 describe("CreateVmModal host volumes", () => {
   it("sends the collected host volumes with the create payload", async () => {
     renderModal();
-    await chooseImage();
+    chooseImage();
 
     fireEvent.click(screen.getByRole("button", { name: "Add volume" }));
     fireEvent.change(screen.getByPlaceholderText("/host/dir"), {
@@ -74,7 +75,7 @@ describe("CreateVmModal host volumes", () => {
     fireEvent.change(screen.getByPlaceholderText("/mnt/data"), {
       target: { value: "/mnt/data" },
     });
-    fireEvent.click(screen.getByRole("switch", { name: "Read-only volume" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Read-only" }));
 
     submit();
 
@@ -91,7 +92,7 @@ describe("CreateVmModal host volumes", () => {
 
   it("omits volumes when the list is empty", async () => {
     renderModal();
-    await chooseImage();
+    chooseImage();
     submit();
 
     await waitFor(() => {
@@ -103,7 +104,7 @@ describe("CreateVmModal host volumes", () => {
 
   it("supports multiple rows and removing one", async () => {
     renderModal();
-    await chooseImage();
+    chooseImage();
 
     fireEvent.click(screen.getByRole("button", { name: "Add volume" }));
     fireEvent.click(screen.getByRole("button", { name: "Add volume" }));
@@ -131,7 +132,7 @@ describe("CreateVmModal host volumes", () => {
 
   it("validates absolute host and guest paths before submitting", async () => {
     renderModal();
-    await chooseImage();
+    chooseImage();
     fireEvent.click(screen.getByRole("button", { name: "Add volume" }));
 
     fireEvent.change(screen.getByPlaceholderText("/host/dir"), {

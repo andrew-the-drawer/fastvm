@@ -23,8 +23,10 @@ describe("UtilizationBar", () => {
 
   it("keeps in-range values unmodified and marks the data attribute", () => {
     installDomStubs();
-    const { container } = render(<UtilizationBar label="CPU" percent={42.5} />);
+    render(<UtilizationBar label="CPU" percent={42.5} />);
     expect(screen.getByText("42.5%")).toBeInTheDocument();
-    expect(container.querySelector(".utilization-bar")).toHaveAttribute("data-percent", "42.5");
+    const bar = screen.getByRole("progressbar", { name: "CPU" });
+    expect(bar).toHaveAttribute("aria-valuenow", "42.5");
+    expect(bar.closest("[data-percent]")).toHaveAttribute("data-percent", "42.5");
   });
 });

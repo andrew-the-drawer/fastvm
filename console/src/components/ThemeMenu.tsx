@@ -1,18 +1,18 @@
-import { Menu } from "@base-ui/react/menu";
-import { parseThemeMode, useTheme } from "../theme/theme-mode";
+import { useTheme } from "../theme/theme-mode";
 import type { ThemeMode } from "../theme/theme-mode";
-import { CheckIcon, MonitorIcon, MoonIcon, SunIcon } from "./icons";
+import { DropdownMenu } from "../ui";
+import type { MenuAction } from "../ui";
+import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 
 interface ThemeOption {
   readonly mode: ThemeMode;
   readonly label: string;
-  readonly description: string;
 }
 
 const THEME_OPTIONS: readonly ThemeOption[] = [
-  { mode: "dark", label: "Dark", description: "Always use the dark theme" },
-  { mode: "light", label: "Light", description: "Always use the light theme" },
-  { mode: "auto", label: "Auto (system)", description: "Follow the operating system appearance" },
+  { mode: "dark", label: "Dark" },
+  { mode: "light", label: "Light" },
+  { mode: "auto", label: "Auto (system)" },
 ];
 
 function optionLabel(mode: ThemeMode): string {
@@ -22,70 +22,51 @@ function optionLabel(mode: ThemeMode): string {
 function ThemeModeIcon({
   mode,
   resolvedMode,
+  className,
 }: {
   mode: ThemeMode;
   resolvedMode: "dark" | "light";
+  className?: string;
 }) {
   if (mode === "auto") {
-    return <MonitorIcon />;
+    return <MonitorIcon className={className} />;
   }
-  return resolvedMode === "dark" ? <MoonIcon /> : <SunIcon />;
+  return resolvedMode === "dark" ? (
+    <MoonIcon className={className} />
+  ) : (
+    <SunIcon className={className} />
+  );
 }
 
 /**
- * Theme switcher: a header icon button opening a Base UI menu with three radio
- * options. Selection applies immediately, persists and closes the menu.
+ * Theme switcher: a sidebar icon button opening a dropdown menu with the three
+ * theme modes. Selection applies immediately, persists and closes the menu;
+ * the active mode is marked with a check icon.
  */
 export function ThemeMenu() {
   const { mode, resolvedMode, setMode } = useTheme();
   const title =
     mode === "auto" ? `Theme: Auto (currently ${resolvedMode})` : `Theme: ${optionLabel(mode)}`;
 
+  const items: MenuAction[] = THEME_OPTIONS.map((option) => ({
+    key: option.mode,
+    label: option.label,
+    icon: <ThemeModeIcon mode={option.mode} resolvedMode={resolvedMode} className="size-4" />,
+    active: mode === option.mode,
+    onClick: () => setMode(option.mode),
+  }));
+
   return (
-    <Menu.Root modal={false}>
-      <Menu.Trigger
-        render={
-          <button
-            type="button"
-            className="icon-button theme-trigger"
-            aria-label="Theme"
-            title={title}
-          />
-        }
-      >
-        <ThemeModeIcon mode={mode} resolvedMode={resolvedMode} />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={8} align="end" className="menu-positioner">
-          <Menu.Popup className="vm-menu-popup theme-menu-popup">
-            <Menu.RadioGroup
-              value={mode}
-              onValueChange={(value: unknown) => {
-                setMode(typeof value === "string" ? parseThemeMode(value) : "auto");
-              }}
-            >
-              <Menu.GroupLabel className="theme-menu-heading">Theme</Menu.GroupLabel>
-              {THEME_OPTIONS.map((option) => (
-                <Menu.RadioItem
-                  key={option.mode}
-                  value={option.mode}
-                  label={option.label}
-                  className="vm-menu-item theme-menu-item"
-                  closeOnClick
-                  title={option.description}
-                >
-                  <ThemeModeIcon mode={option.mode} resolvedMode={resolvedMode} />
-                  <span className="theme-menu-item-label">{option.label}</span>
-                  <Menu.RadioItemIndicator className="theme-menu-check">
-                    <CheckIcon />
-                  </Menu.RadioItemIndicator>
-                </Menu.RadioItem>
-              ))}
-            </Menu.RadioGroup>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+    <DropdownMenu
+      label="Theme"
+      trigger={
+        <span title={title}>
+          <ThemeModeIcon mode={mode} resolvedMode={resolvedMode} className="size-5" />
+        </span>
+      }
+      triggerClassName="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-4 focus-visible:ring-indigo-200 focus-visible:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white dark:focus-visible:ring-indigo-900"
+      items={items}
+    />
   );
 }
 

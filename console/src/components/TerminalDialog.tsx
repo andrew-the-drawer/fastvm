@@ -1,15 +1,15 @@
-import { Button, Modal, Spin, Tag } from "antd";
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
+import { XMarkIcon } from "@heroicons/react/24/outline";
 import { useEffect, useRef, useState } from "react";
 import type { FitAddon as GhosttyFitAddon, Terminal as GhosttyTerminal } from "ghostty-web";
 import { connectShell } from "../lib/shell";
 import type { ShellHandle } from "../lib/shell";
 import type { Sandbox } from "../lib/types";
+import { Spinner } from "../ui";
 import { monoFontFamily, terminalTheme } from "../theme";
-import { useTheme } from "../theme/theme-mode";
 import { describeError } from "../utils/errors";
 import { shortId } from "../utils/format";
 import { RefreshIcon, TerminalIcon } from "./icons";
-import { VmStatusTag } from "./VmStatusTag";
 
 type GhosttyModule = typeof import("ghostty-web");
 type GhosttyImports = Pick<GhosttyModule, "Terminal" | "FitAddon">;
@@ -52,31 +52,34 @@ function exitLabel(exitCode: number | null | undefined): string {
   return `Session ended (exit ${exitCode})`;
 }
 
-function TerminalStatusTag({ status }: { status: TerminalStatus }) {
+function TerminalStatusBadge({ status }: { status: TerminalStatus }) {
+  const base =
+    "inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";
   switch (status.kind) {
     case "connecting":
       return (
-        <Tag color="processing" className="terminal-status-tag">
-          <Spin size="small" /> Connecting…
-        </Tag>
+        <span className={`${base} border-gray-700 bg-gray-800 text-gray-300`}>
+          <Spinner className="size-3" /> Connecting…
+        </span>
       );
     case "connected":
       return (
-        <Tag color="success" className="terminal-status-tag">
-          Connected
-        </Tag>
+        <span className={`${base} border-green-900 bg-green-950/40 text-green-300`}>Connected</span>
       );
     case "exited":
       return (
-        <Tag color="default" className="terminal-status-tag">
+        <span className={`${base} border-gray-700 bg-gray-800 text-gray-300`}>
           {exitLabel(status.exitCode)}
-        </Tag>
+        </span>
       );
     case "error":
       return (
-        <Tag color="error" className="terminal-status-tag" title={status.message}>
+        <span
+          className={`${base} border-red-900 bg-red-950/40 text-red-300`}
+          title={status.message}
+        >
           Connection error
-        </Tag>
+        </span>
       );
   }
 }
@@ -85,8 +88,6 @@ export interface TerminalDialogProps {
   sandbox: Sandbox | null;
   open: boolean;
   onClose: () => void;
-  /** Fired after the closing animation; lets the parent unmount the dialog. */
-  onClosed?: () => void;
 }
 
 /**
@@ -94,21 +95,15 @@ export interface TerminalDialogProps {
  * WebSocket session is created every time the dialog opens or Reconnect is
  * pressed; closing/disposing always tears both down.
  */
-export function TerminalDialog({ sandbox, open, onClose, onClosed }: TerminalDialogProps) {
-  const { resolvedMode } = useTheme();
-  // The antd Modal mounts its body after the dialog effect can run, so the
-  // terminal container arrives through a callback-ref state instead of a ref.
+export function TerminalDialog({ sandbox, open, onClose }: TerminalDialogProps) {
+  // The dialog body can mount after the effect runs, so the terminal container
+  // arrives through a callback-ref state instead of a ref.
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const terminalRef = useRef<GhosttyTerminal | null>(null);
-  const resolvedModeRef = useRef(resolvedMode);
   const [session, setSession] = useState(0);
   const [status, setStatus] = useState<TerminalStatus>(INITIAL_STATUS);
 
   const sandboxRef = sandbox?.id;
-
-  useEffect(() => {
-    resolvedModeRef.current = resolvedMode;
-  }, [resolvedMode]);
 
   useEffect(() => {
     if (!open || sandboxRef === undefined || container === null) {
@@ -140,7 +135,9 @@ export function TerminalDialog({ sandbox, open, onClose, onClosed }: TerminalDia
           fontFamily: monoFontFamily,
           cursorBlink: true,
           scrollback: 10_000,
-          theme: terminalTheme(resolvedModeRef.current),
+          // The exec window is a terminal first: it keeps the canonical dark
+          // terminal theme independently of the dashboard light/dark mode.
+          theme: terminalTheme("dark"),
         });
         terminalRef.current = terminal;
         fitAddon = new FitCtor();
@@ -221,88 +218,109 @@ export function TerminalDialog({ sandbox, open, onClose, onClosed }: TerminalDia
     };
   }, [open, sandboxRef, session, container]);
 
-  // Live theme switch keeps the session (and scrollback) intact.
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!open || terminal === null) {
-      return;
-    }
-    try {
-      terminal.options.theme = terminalTheme(resolvedMode);
-    } catch {
-      // Some terminals freeze options; a failed repaint must not kill the session.
-    }
-  }, [open, resolvedMode]);
-
   const effectiveStatus: TerminalStatus = status.session === session ? status : INITIAL_STATUS;
   const connecting = effectiveStatus.kind === "connecting";
-
-  const title = (
-    <div className="terminal-title">
-      <span className="terminal-title-main">
-        <span className="terminal-title-icon" aria-hidden="true">
-          <TerminalIcon />
-        </span>
-        <span className="terminal-title-name">{sandbox?.name ?? "Terminal"}</span>
-        {sandbox !== null ? (
-          <span className="terminal-title-id">{shortId(sandbox.id, 12)}</span>
-        ) : null}
-        {sandbox !== null ? <VmStatusTag state={sandbox.state} showTooltip={false} /> : null}
-      </span>
-      <TerminalStatusTag status={effectiveStatus} />
-    </div>
-  );
-
-  const footer = (
-    <div className="terminal-footer">
-      <span className="terminal-hint">
-        <TerminalIcon /> Ctrl+C sends interrupt · closing ends the session
-      </span>
-      <span className="terminal-actions">
-        <Button
-          icon={<RefreshIcon />}
-          onClick={() => {
-            setSession((value) => value + 1);
-          }}
-          disabled={connecting}
-        >
-          Reconnect
-        </Button>
-        <Button onClick={onClose}>Close</Button>
-      </span>
-    </div>
-  );
+  const terminalBackground = terminalTheme("dark").background;
 
   return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      afterClose={onClosed}
-      footer={footer}
-      centered
-      width={1100}
-      keyboard={false}
-      mask={{ closable: false }}
-      closable={false}
-      destroyOnHidden
-      className="terminal-modal"
-      styles={{ body: { padding: 0 } }}
-      title={title}
-    >
-      <div className="terminal-body">
-        {effectiveStatus.kind === "error" ? (
-          <div className="terminal-error-banner" role="alert">
-            {effectiveStatus.message ?? "Could not open a shell session."}
+    <Dialog open={open} onClose={onClose} className="relative z-50">
+      <DialogBackdrop className="fixed inset-0 bg-gray-950/80 backdrop-blur-sm" />
+      <div className="fixed inset-0 flex items-end justify-center p-4 sm:items-center">
+        <DialogPanel className="flex h-[min(80vh,760px)] w-full max-w-[1100px] flex-col overflow-hidden rounded-xl border border-gray-800 bg-[#0b0e14] shadow-2xl">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-800 bg-[#111827] px-4 py-2.5">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex shrink-0 items-center gap-1.5" aria-hidden="true">
+                <span className="size-2.5 rounded-full bg-[#ff5f57]" />
+                <span className="size-2.5 rounded-full bg-[#febc2e]" />
+                <span className="size-2.5 rounded-full bg-[#28c840]" />
+              </span>
+              <span className="shrink-0 text-gray-500" aria-hidden="true">
+                <TerminalIcon className="size-4" />
+              </span>
+              <DialogTitle className="truncate text-sm font-medium text-gray-100">
+                {sandbox?.name ?? "Terminal"}
+              </DialogTitle>
+              {sandbox !== null ? (
+                <span className="hidden font-mono text-[11px] text-gray-500 sm:inline">
+                  {shortId(sandbox.id, 12)}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <TerminalStatusBadge status={effectiveStatus} />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close terminal"
+                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <XMarkIcon className="size-4" />
+              </button>
+            </div>
           </div>
-        ) : null}
-        {effectiveStatus.kind === "exited" ? (
-          <div className="terminal-info-banner" role="status">
-            The shell exited; the output above is preserved. Reconnect to start a new session.
+
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-2 p-3"
+            style={{ backgroundColor: terminalBackground }}
+            onKeyDown={(event) => {
+              // Keep Escape inside the shell instead of letting Headless UI
+              // close the dialog (ghostty turns it into an ESC byte for the PTY).
+              if (event.key === "Escape") {
+                event.stopPropagation();
+              }
+            }}
+          >
+            {effectiveStatus.kind === "error" ? (
+              <div
+                className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"
+                role="alert"
+              >
+                {effectiveStatus.message ?? "Could not open a shell session."}
+              </div>
+            ) : null}
+            {effectiveStatus.kind === "exited" ? (
+              <div
+                className="rounded-lg border border-gray-700 bg-gray-800/60 px-3 py-2 text-sm text-gray-300"
+                role="status"
+              >
+                The shell exited; the output above is preserved. Reconnect to start a new session.
+              </div>
+            ) : null}
+            <div
+              className="terminal-container min-h-0 flex-1"
+              ref={setContainer}
+              data-testid="terminal-container"
+            />
           </div>
-        ) : null}
-        <div className="terminal-container" ref={setContainer} data-testid="terminal-container" />
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-gray-800 bg-[#111827] px-4 py-2.5">
+            <span className="inline-flex items-center gap-1.5 text-xs text-gray-400">
+              <TerminalIcon className="size-3.5" /> Ctrl+C sends interrupt · closing ends the
+              session
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSession((value) => value + 1);
+                }}
+                disabled={connecting}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <RefreshIcon className="size-3.5" /> Reconnect
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-8 items-center rounded-md border border-gray-700 bg-gray-800 px-3 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                Close
+              </button>
+            </span>
+          </div>
+        </DialogPanel>
       </div>
-    </Modal>
+    </Dialog>
   );
 }
 

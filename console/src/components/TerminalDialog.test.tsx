@@ -186,13 +186,12 @@ afterEach(cleanup);
 
 function renderDialog() {
   const onClose = vi.fn();
-  const onClosed = vi.fn();
   const result = render(
     <ThemeProvider>
-      <TerminalDialog sandbox={sandbox} open onClose={onClose} onClosed={onClosed} />
+      <TerminalDialog sandbox={sandbox} open onClose={onClose} />
     </ThemeProvider>,
   );
-  return { ...result, onClose, onClosed };
+  return { ...result, onClose };
 }
 
 async function waitForShellCall(): Promise<ShellCall> {
@@ -295,7 +294,7 @@ describe("TerminalDialog", () => {
   });
 
   it("closes the socket and disposes the terminal when the dialog closes", async () => {
-    const { onClose, rerender, onClosed } = renderDialog();
+    const { onClose, rerender } = renderDialog();
     const call = await waitForShellCall();
     const terminal = ghostty.state.terminals[0];
     const fitAddon = ghostty.state.fitAddons[0];
@@ -305,7 +304,7 @@ describe("TerminalDialog", () => {
 
     rerender(
       <ThemeProvider>
-        <TerminalDialog sandbox={sandbox} open={false} onClose={onClose} onClosed={onClosed} />
+        <TerminalDialog sandbox={sandbox} open={false} onClose={onClose} />
       </ThemeProvider>,
     );
 

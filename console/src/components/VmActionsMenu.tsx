@@ -1,6 +1,6 @@
-import { Menu } from "@base-ui/react/menu";
-import { Button } from "antd";
 import type { Sandbox } from "../lib/types";
+import { DropdownMenu } from "../ui";
+import type { MenuAction } from "../ui";
 import {
   canDeepSleep,
   canDelete,
@@ -43,105 +43,87 @@ export function VmActionsMenu({
 }: VmActionsMenuProps) {
   const busy = pending !== null;
 
+  const items: MenuAction[] = [
+    {
+      key: "details",
+      label: "Details",
+      icon: <InfoIcon className="size-4" />,
+      onClick: () => {
+        onDetails(sandbox);
+      },
+    },
+    {
+      key: "exec",
+      label: "Open terminal",
+      icon: <TerminalIcon className="size-4" />,
+      disabled: busy || !canExec(sandbox.state),
+      onClick: () => {
+        onExec(sandbox);
+      },
+    },
+    {
+      key: "pause",
+      label: "Pause",
+      icon: <PauseIcon className="size-4" />,
+      separatorBefore: true,
+      disabled: busy || !canPause(sandbox.state),
+      onClick: () => {
+        onAction("pause", sandbox);
+      },
+    },
+    {
+      key: "deepSleep",
+      label: "Deep sleep",
+      icon: <MoonIcon className="size-4" />,
+      disabled: busy || !canDeepSleep(sandbox.state),
+      onClick: () => {
+        onAction("deepSleep", sandbox);
+      },
+    },
+    {
+      key: "resume",
+      label: "Resume",
+      icon: <PlayIcon className="size-4" />,
+      disabled: busy || !canResume(sandbox.state),
+      onClick: () => {
+        onAction("resume", sandbox);
+      },
+    },
+    {
+      key: "delete",
+      label: "Delete",
+      icon: <TrashIcon className="size-4" />,
+      danger: true,
+      separatorBefore: true,
+      disabled: busy || !canDelete(sandbox.state),
+      onClick: () => {
+        onAction("delete", sandbox);
+      },
+    },
+  ];
+
   return (
     <span
-      className="vm-actions-cell"
+      className="inline-flex"
       onClick={(event) => {
         // The trigger lives inside a clickable table row; keep menu clicks local.
         event.stopPropagation();
       }}
     >
-      <Menu.Root modal={false}>
-        <Menu.Trigger
-          render={
-            <Button
-              type="text"
-              size="small"
-              className="vm-actions-trigger"
-              aria-label={`Actions for ${sandbox.name}`}
-            />
-          }
-        >
-          <MoreIcon />
-        </Menu.Trigger>
-        <Menu.Portal>
-          <Menu.Positioner sideOffset={6} align="end" className="menu-positioner">
-            <Menu.Popup className="vm-menu-popup">
-              <Menu.Item
-                className="vm-menu-item"
-                onClick={() => {
-                  onDetails(sandbox);
-                }}
-              >
-                <InfoIcon />
-                <span>Details</span>
-              </Menu.Item>
-              <Menu.Item
-                className="vm-menu-item"
-                disabled={busy || !canExec(sandbox.state)}
-                title="Open an interactive shell; fastvmd wakes sleeping sandboxes."
-                onClick={() => {
-                  onExec(sandbox);
-                }}
-              >
-                <TerminalIcon />
-                <span>Open terminal</span>
-              </Menu.Item>
-              <Menu.Separator className="vm-menu-separator" />
-              <Menu.Item
-                className="vm-menu-item"
-                disabled={busy || !canPause(sandbox.state)}
-                title="Pause vCPUs; the sandbox wakes on the next packet."
-                onClick={() => {
-                  onAction("pause", sandbox);
-                }}
-              >
-                <PauseIcon />
-                <span>Pause</span>
-              </Menu.Item>
-              <Menu.Item
-                className="vm-menu-item"
-                disabled={busy || !canDeepSleep(sandbox.state)}
-                title="Pause and offload guest memory to a file-backed snapshot."
-                onClick={() => {
-                  onAction("deepSleep", sandbox);
-                }}
-              >
-                <MoonIcon />
-                <span>Deep sleep</span>
-              </Menu.Item>
-              <Menu.Item
-                className="vm-menu-item"
-                disabled={busy || !canResume(sandbox.state)}
-                title="Restart vCPUs and drain buffered traffic."
-                onClick={() => {
-                  onAction("resume", sandbox);
-                }}
-              >
-                <PlayIcon />
-                <span>Resume</span>
-              </Menu.Item>
-              <Menu.Separator className="vm-menu-separator" />
-              <Menu.Item
-                className="vm-menu-item vm-menu-item--danger"
-                disabled={busy || !canDelete(sandbox.state)}
-                title="Permanently remove the sandbox and its writable volume."
-                onClick={() => {
-                  onAction("delete", sandbox);
-                }}
-              >
-                <TrashIcon />
-                <span>Delete</span>
-              </Menu.Item>
-              {busy ? (
-                <div className="vm-menu-note" role="status">
-                  Working…
-                </div>
-              ) : null}
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.Root>
+      <DropdownMenu
+        label={`Actions for ${sandbox.name}`}
+        trigger={<MoreIcon className="size-5" />}
+        triggerClassName="inline-flex rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white dark:focus-visible:ring-indigo-900"
+        items={items}
+        menuClassName="w-48"
+        footer={
+          busy ? (
+            <span className="text-xs text-gray-500 dark:text-gray-400" role="status">
+              Working…
+            </span>
+          ) : undefined
+        }
+      />
     </span>
   );
 }

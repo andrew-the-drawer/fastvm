@@ -2,7 +2,7 @@
 
 Web console for **fastvm**: a browser UI on top of the `fastvmd` HTTP/JSON API
 (sandbox lifecycle, stats, images, event log). Built with React 19, TypeScript,
-Ant Design, TanStack Query, Base UI, and [Vite+](https://viteplus.dev) (`vp`).
+Tailwind CSS with HyperUI-style components, Headless UI, Heroicons, deterministic DiceBear avatars, TanStack Query, and [Vite+](https://viteplus.dev) (`vp`).
 
 The console talks to the daemon **same-origin**: a small Vite plugin proxies
 `/v1/*` (including WebSocket upgrades) to `fastvmd`'s unix socket in both dev and
@@ -250,9 +250,10 @@ console/
 │   ├── auth/                # OIDC + PKCE (pkce.ts, oidc.ts, AuthProvider, session)
 │   ├── lib/                 # zod API types, fetch client, Query hooks, shell WS client
 │   ├── pages/               # LoginPage, DashboardPage
-│   ├── components/          # header, table, utilization, actions, dialogs, drawer, exec terminal
+│   ├── components/          # sidebar, table, utilization, actions, dialogs, drawer, exec terminal
+│   ├── ui/                  # Tailwind + Headless UI primitives (button, form, modal, drawer, menu, toast)
 │   ├── utils/               # formatting + error helpers
-│   ├── theme.ts             # antd dark/light palettes -> buildTheme()
+│   ├── theme.ts             # terminal palettes for ghostty-web
 │   ├── theme/               # theme mode (dark/light/auto), provider, system sync
 │   ├── styles.css
 │   └── test/setup.ts        # jest-dom matchers for Vitest

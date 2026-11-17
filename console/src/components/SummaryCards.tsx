@@ -1,7 +1,7 @@
-import { Card, Col, Row, Skeleton, Statistic } from "antd";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { Sandbox } from "../lib/types";
+import { cn } from "../ui";
 import { ActivityIcon, MoonIcon, ServerIcon, TrashIcon } from "./icons";
 
 export interface SummaryCardsProps {
@@ -10,14 +10,23 @@ export interface SummaryCardsProps {
   loading?: boolean;
 }
 
+type SummaryTone = "total" | "running" | "sleeping" | "failed";
+
 interface SummaryDefinition {
   key: string;
   label: string;
   hint: string;
   value: number;
   icon: ReactNode;
-  tone: "total" | "running" | "sleeping" | "failed";
+  tone: SummaryTone;
 }
+
+const TONE_BADGE: Record<SummaryTone, string> = {
+  total: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+  running: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  sleeping: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+};
 
 function isRunning(state: Sandbox["state"]): boolean {
   return state === "Running" || state === "Idle";
@@ -83,31 +92,44 @@ export function SummaryCards({ sandboxes, loading = false }: SummaryCardsProps) 
   const showSkeletons = loading && sandboxes.length === 0;
 
   return (
-    <Row className="summary-grid" gutter={[16, 16]}>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {summaries.map((summary) => (
-        <Col key={summary.key} xs={12} md={12} xl={6}>
-          <Card className={`summary-card summary-card--${summary.tone}`} variant="outlined">
-            {showSkeletons ? (
-              <div className="summary-card-body">
-                <span className="summary-icon">{summary.icon}</span>
-                <div className="summary-copy">
-                  <span className="summary-label">{summary.label}</span>
-                  <Skeleton.Input active size="small" className="summary-skeleton" />
-                </div>
-              </div>
-            ) : (
-              <Statistic
-                title={summary.label}
-                value={summary.value}
-                prefix={summary.icon}
-                className="summary-statistic"
-              />
+        <article
+          key={summary.key}
+          data-tone={summary.tone}
+          title={summary.hint}
+          className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900"
+        >
+          {showSkeletons ? (
+            <div className="flex flex-col gap-1.5" aria-hidden="true">
+              <span className="h-3.5 w-20 animate-pulse rounded bg-gray-200 dark:bg-gray-800" />
+              <span className="h-6 w-10 animate-pulse rounded bg-gray-200 dark:bg-gray-800" />
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-gray-500 dark:text-gray-400">
+                {summary.label}
+              </p>
+              <p
+                data-testid={`summary-value-${summary.key}`}
+                className="mt-0.5 text-xl font-semibold text-gray-900 tabular-nums dark:text-white"
+              >
+                {summary.value}
+              </p>
+            </div>
+          )}
+          <span
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-md",
+              TONE_BADGE[summary.tone],
             )}
-            <span className="summary-hint">{summary.hint}</span>
-          </Card>
-        </Col>
+            aria-hidden="true"
+          >
+            <span className="size-4">{summary.icon}</span>
+          </span>
+        </article>
       ))}
-    </Row>
+    </div>
   );
 }
 

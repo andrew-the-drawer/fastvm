@@ -21,21 +21,45 @@ const STATES: SandboxState[] = [
 afterEach(cleanup);
 
 describe("VmStatusTag", () => {
-  it("renders the lifecycle label for every state", () => {
+  it("renders the lifecycle label and data-state for every state", () => {
     installDomStubs();
     for (const state of STATES) {
       const { unmount } = render(<VmStatusTag state={state} showTooltip={false} />);
-      const label = screen.getByText(sandboxStateMeta(state).label);
-      expect(label).toHaveAttribute("data-state", state);
+      const tag = screen.getByText(sandboxStateMeta(state).label);
+      expect(tag).toHaveAttribute("data-state", state);
+      expect(tag).toHaveClass("rounded-full");
       unmount();
     }
   });
 
-  it("uses the antd tag color configured for the state", () => {
+  it("exposes the state description as a native tooltip by default", () => {
     installDomStubs();
-    render(<VmStatusTag state="Running" showTooltip={false} />);
+    render(<VmStatusTag state="Running" />);
     const tag = screen.getByText("Running");
-    expect(tag.className).toContain("green");
-    expect(tag).toHaveClass("vm-status-tag");
+    expect(tag).toHaveAttribute("title", sandboxStateMeta("Running").description);
+  });
+
+  it("omits the tooltip when showTooltip is false", () => {
+    installDomStubs();
+    render(<VmStatusTag state="Dormant" showTooltip={false} />);
+    expect(screen.getByText("Dormant")).not.toHaveAttribute("title");
+  });
+
+  it("uses HyperUI tone badges for the lifecycle states", () => {
+    installDomStubs();
+    const { unmount } = render(<VmStatusTag state="Running" showTooltip={false} />);
+    expect(screen.getByText("Running").className).toContain("bg-green-100");
+    unmount();
+
+    const paused = render(<VmStatusTag state="Paused" showTooltip={false} />);
+    expect(screen.getByText("Paused").className).toContain("bg-amber-100");
+    paused.unmount();
+
+    const dormant = render(<VmStatusTag state="Dormant" showTooltip={false} />);
+    expect(screen.getByText("Dormant").className).toContain("bg-purple-100");
+    dormant.unmount();
+
+    render(<VmStatusTag state="Failed" showTooltip={false} />);
+    expect(screen.getByText("Failed").className).toContain("bg-red-100");
   });
 });

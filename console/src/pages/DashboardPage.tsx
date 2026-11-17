@@ -1,8 +1,7 @@
+import { Bars3Icon } from "@heroicons/react/24/outline";
 import { useQueryClient } from "@tanstack/react-query";
-import { App as AntdApp, Button, Layout } from "antd";
 import { useCallback, useState } from "react";
-import { AppHeader } from "../components/AppHeader";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { AppSidebar } from "../components/AppSidebar";
 import { CreateVmModal } from "../components/CreateVmModal";
 import { ClockIcon, PlusIcon, RefreshIcon } from "../components/icons";
 import { SummaryCards } from "../components/SummaryCards";
@@ -16,9 +15,11 @@ import {
   useImages,
   useSandboxes,
   useSleepSandbox,
+  useVersion,
   useWakeSandbox,
 } from "../lib/queries";
 import type { BaseDisk, Sandbox } from "../lib/types";
+import { Button, IconButton, Modal, cn, useToast } from "../ui";
 import { describeError } from "../utils/errors";
 import { formatClockTime, formatDateTime } from "../utils/format";
 
@@ -26,18 +27,20 @@ const EMPTY_SANDBOXES: readonly Sandbox[] = [];
 const EMPTY_IMAGES: readonly BaseDisk[] = [];
 
 /**
- * Main console screen: polled sandbox list, summary counters, create flow,
- * lifecycle actions with confirmation, and a live detail drawer.
+ * Main console screen: HyperUI sidebar shell with a polled sandbox table,
+ * summary counters, lifecycle actions, create flow and live detail drawer.
  */
 export default function DashboardPage() {
-  const { message } = AntdApp.useApp();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const sandboxesQuery = useSandboxes();
   const imagesQuery = useImages();
+  const version = useVersion();
   const sleepSandbox = useSleepSandbox();
   const wakeSandbox = useWakeSandbox();
   const deleteSandbox = useDeleteSandbox();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -70,6 +73,8 @@ export default function DashboardPage() {
 
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
+    setDetailRef(null);
+    setDetailSnapshot(null);
   }, []);
 
   const openTerminal = useCallback((sandbox: Sandbox) => {
@@ -79,17 +84,7 @@ export default function DashboardPage() {
 
   const closeTerminal = useCallback(() => {
     setTerminalOpen(false);
-  }, []);
-
-  const clearTerminal = useCallback(() => {
-    setTerminalOpen(false);
     setTerminalTarget(null);
-  }, []);
-
-  const clearDrawer = useCallback(() => {
-    setDrawerOpen(false);
-    setDetailRef(null);
-    setDetailSnapshot(null);
   }, []);
 
   const handleRefresh = useCallback(async () => {
@@ -119,21 +114,21 @@ export default function DashboardPage() {
       try {
         if (kind === "pause") {
           await sleepSandbox.mutateAsync({ ref: sandbox.id, deep: false });
-          message.success(`${sandbox.name} paused`);
+          toast.success(`${sandbox.name} paused`);
         } else if (kind === "deepSleep") {
           await sleepSandbox.mutateAsync({ ref: sandbox.id, deep: true });
-          message.success(`${sandbox.name} is deeply asleep`);
+          toast.success(`${sandbox.name} is deeply asleep`);
         } else {
           await wakeSandbox.mutateAsync(sandbox.id);
-          message.success(`${sandbox.name} resumed`);
+          toast.success(`${sandbox.name} resumed`);
         }
       } catch (error) {
-        message.error(describeError(error));
+        toast.error(describeError(error));
       } finally {
         setPendingAction(null);
       }
     },
-    [message, openDelete, pendingAction, sleepSandbox, wakeSandbox],
+    [openDelete, pendingAction, sleepSandbox, toast, wakeSandbox],
   );
 
   const closeDelete = useCallback(() => {
@@ -158,29 +153,29 @@ export default function DashboardPage() {
         previous === undefined ? previous : previous.filter((sandbox) => sandbox.id !== target.id),
       );
       queryClient.removeQueries({ queryKey: queryKeys.sandboxStats(target.id) });
-      message.success(`Deleted ${target.name}`);
+      toast.success(`Deleted ${target.name}`);
       setDeleteOpen(false);
       setDeleteTarget(null);
       if (detailRef === target.id) {
-        clearDrawer();
+        closeDrawer();
       }
       if (terminalTarget?.id === target.id) {
-        clearTerminal();
+        closeTerminal();
       }
     } catch (error) {
-      message.error(describeError(error));
+      toast.error(describeError(error));
     } finally {
       setPendingAction(null);
     }
   }, [
-    clearDrawer,
-    clearTerminal,
+    closeDrawer,
+    closeTerminal,
     deleteSandbox,
     deleteTarget,
     detailRef,
-    message,
     queryClient,
     terminalTarget,
+    toast,
   ]);
 
   const deleting = pendingAction?.kind === "delete";
@@ -188,85 +183,159 @@ export default function DashboardPage() {
   const lastUpdated = sandboxesQuery.dataUpdatedAt;
   const lastUpdatedLabel = lastUpdated > 0 ? formatClockTime(lastUpdated) : "—";
 
+  const versionText = version.isPending
+    ? "fastvmd …"
+    : version.isError
+      ? "fastvmd offline"
+      : version.data?.name !== undefined && version.data.name !== ""
+        ? `${version.data.name} v${version.data.version}`
+        : `fastvmd ${version.data?.version ?? "?"}`;
+
   return (
-    <Layout className="app-shell">
-      <AppHeader isRefreshing={manualRefreshing} onRefresh={() => void handleRefresh()} />
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
+      <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <Layout.Content className="dashboard-content">
-        <div className="dashboard-heading">
-          <div>
-            <h1 className="dashboard-title">Sandboxes</h1>
-            <p className="dashboard-subtitle">
-              Micro-VMs on this host. Pause, offload, or wake them — traffic brings them back.
-            </p>
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <header className="flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8 dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              aria-label="Open sidebar"
+              aria-expanded={sidebarOpen}
+              aria-controls="app-sidebar"
+              onClick={() => setSidebarOpen(true)}
+              className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 lg:hidden dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white dark:focus-visible:ring-indigo-900"
+            >
+              <Bars3Icon className="size-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
+                Sandboxes
+              </h1>
+              <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                Micro-VMs on this host. Pause, offload, or wake them — traffic brings them back.
+              </p>
+            </div>
           </div>
-          <div className="dashboard-meta">
-            <span className="last-updated" title={formatDateTime(lastUpdated)}>
-              <ClockIcon /> Last updated {lastUpdatedLabel}
+
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <span
+              className={cn(
+                "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium whitespace-nowrap sm:inline-flex",
+                version.isError
+                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                  : version.isPending
+                    ? "border-gray-200 bg-gray-50 text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400"
+                    : "border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-200",
+              )}
+              title={
+                version.isError
+                  ? "fastvmd is unreachable; lifecycle data cannot be loaded."
+                  : "Connected to fastvmd over the same-origin API."
+              }
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "size-2 rounded-full",
+                  version.isError
+                    ? "bg-red-500"
+                    : version.isPending
+                      ? "bg-gray-400"
+                      : "bg-green-500",
+                )}
+              />
+              {versionText}
             </span>
+
+            <IconButton
+              label="Refresh sandboxes"
+              onClick={() => void handleRefresh()}
+              disabled={manualRefreshing}
+            >
+              <RefreshIcon className={manualRefreshing ? "size-5 spinning" : "size-5"} />
+            </IconButton>
+
+            <Button
+              variant="primary"
+              icon={<PlusIcon className="size-4" />}
+              onClick={() => setCreateOpen(true)}
+            >
+              Create VM
+            </Button>
           </div>
-        </div>
+        </header>
 
-        <SummaryCards sandboxes={sandboxes} loading={sandboxesQuery.isPending} />
+        <main className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8">
+          <section id="overview" aria-label="Overview">
+            <SummaryCards sandboxes={sandboxes} loading={sandboxesQuery.isPending} />
+          </section>
 
-        <section className="vm-panel" aria-label="Virtual machines">
-          <div className="vm-toolbar">
-            <div className="vm-toolbar-group">
-              <Button type="primary" icon={<PlusIcon />} onClick={() => setCreateOpen(true)}>
-                Create VM
-              </Button>
-              <Button
-                icon={<RefreshIcon />}
-                onClick={() => void handleRefresh()}
-                loading={manualRefreshing}
+          <section
+            id="sandboxes"
+            aria-label="Sandboxes"
+            className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-4 sm:px-6 dark:border-gray-800">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  All sandboxes
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {sandboxes.length} VM{sandboxes.length === 1 ? "" : "s"} · Updates every 3s ·
+                  stats every 2s
+                </p>
+              </div>
+              <span
+                className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+                title={formatDateTime(lastUpdated)}
               >
-                Refresh
-              </Button>
-            </div>
-            <div className="vm-toolbar-group vm-toolbar-group--meta">
-              <span className="toolbar-hint">
-                <span className="live-dot" aria-hidden="true" />
-                Updates every 3s · stats every 2s
-              </span>
-              <span className="toolbar-count">
-                {sandboxes.length} VM{sandboxes.length === 1 ? "" : "s"}
+                <ClockIcon className="size-3.5" /> Last updated {lastUpdatedLabel}
               </span>
             </div>
-          </div>
 
-          <VmTable
-            sandboxes={sandboxes}
-            images={images}
-            loading={sandboxesQuery.isPending || manualRefreshing}
-            error={listError}
-            pendingAction={pendingAction}
-            onCreate={() => setCreateOpen(true)}
-            onRetry={() => void handleRefresh()}
-            onDetails={openDetails}
-            onAction={(kind, sandbox) => void handleAction(kind, sandbox)}
-            onExec={openTerminal}
-          />
-        </section>
-      </Layout.Content>
+            <VmTable
+              sandboxes={sandboxes}
+              images={images}
+              loading={sandboxesQuery.isPending || manualRefreshing}
+              error={listError}
+              pendingAction={pendingAction}
+              onCreate={() => setCreateOpen(true)}
+              onRetry={() => void handleRefresh()}
+              onDetails={openDetails}
+              onAction={(kind, sandbox) => void handleAction(kind, sandbox)}
+              onExec={openTerminal}
+            />
+          </section>
+        </main>
+      </div>
 
       <CreateVmModal open={createOpen} onClose={() => setCreateOpen(false)} />
 
-      <ConfirmDialog
+      <Modal
         open={deleteOpen}
-        danger
-        loading={deleting}
+        onClose={closeDelete}
+        size="sm"
         title="Delete this sandbox?"
-        confirmLabel="Delete sandbox"
-        onConfirm={() => void confirmDelete()}
-        onCancel={closeDelete}
-        description={
-          <span>
-            <strong>{deleteTarget?.name ?? "This sandbox"}</strong> and its writable volume will be
-            removed permanently. Any running workload stops immediately and the scratch disk is
-            discarded. This cannot be undone.
-          </span>
+        footer={
+          <>
+            <Button onClick={closeDelete} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={deleting} onClick={() => void confirmDelete()}>
+              Delete sandbox
+            </Button>
+          </>
         }
-      />
+      >
+        <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+          <strong className="font-semibold text-gray-900 dark:text-white">
+            {deleteTarget?.name ?? "This sandbox"}
+          </strong>{" "}
+          and its writable volume will be removed permanently. Any running workload stops
+          immediately and the scratch disk is discarded. This cannot be undone.
+        </p>
+      </Modal>
 
       {detailSnapshot !== null ? (
         <VmDetailDrawer
@@ -275,20 +344,14 @@ export default function DashboardPage() {
           images={images}
           pendingAction={pendingAction}
           onClose={closeDrawer}
-          onClosed={clearDrawer}
           onAction={(kind, sandbox) => void handleAction(kind, sandbox)}
           onExec={openTerminal}
         />
       ) : null}
 
       {terminalTarget !== null ? (
-        <TerminalDialog
-          sandbox={terminalSandbox}
-          open={terminalOpen}
-          onClose={closeTerminal}
-          onClosed={clearTerminal}
-        />
+        <TerminalDialog sandbox={terminalSandbox} open={terminalOpen} onClose={closeTerminal} />
       ) : null}
-    </Layout>
+    </div>
   );
 }

@@ -132,25 +132,22 @@ describe("imageLabel", () => {
 });
 
 describe("sandboxStateMeta", () => {
-  it("defines a label, color and description for every state", () => {
+  it("defines a label, tone and description for every state", () => {
     for (const state of ALL_STATES) {
       const meta = sandboxStateMeta(state);
       expect(meta.label.length).toBeGreaterThan(0);
-      expect(meta.color.length).toBeGreaterThan(0);
       expect(meta.description.length).toBeGreaterThan(0);
     }
   });
 
-  it("uses distinct buckets and tag colors", () => {
+  it("uses distinct tone buckets", () => {
     expect(sandboxStateMeta("Running")).toMatchObject({
       label: "Running",
-      color: "green",
       tone: "active",
     });
     expect(sandboxStateMeta("Idle").tone).toBe("idle");
     expect(sandboxStateMeta("Paused")).toMatchObject({
       label: "Paused",
-      color: "gold",
       tone: "sleeping",
     });
     expect(sandboxStateMeta("Dormant").tone).toBe("sleeping");

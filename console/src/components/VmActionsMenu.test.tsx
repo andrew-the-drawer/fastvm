@@ -20,6 +20,11 @@ const sandbox: Sandbox = {
   updated_at: "2024-06-15T12:34:56Z",
 };
 
+async function openMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
+  expect(await screen.findByRole("menu")).toBeInTheDocument();
+}
+
 describe("VmActionsMenu", () => {
   it("opens the lifecycle menu and fires the action", async () => {
     installDomStubs();
@@ -36,9 +41,8 @@ describe("VmActionsMenu", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
-    const pause = await screen.findByText("Pause");
-    fireEvent.click(pause);
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pause" }));
 
     expect(onAction).toHaveBeenCalledWith("pause", sandbox);
   });
@@ -69,7 +73,7 @@ describe("VmActionsMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
     expect(rowClick).not.toHaveBeenCalled();
 
-    fireEvent.click(await screen.findByText("Pause"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pause" }));
     expect(rowClick).not.toHaveBeenCalled();
   });
 
@@ -85,9 +89,10 @@ describe("VmActionsMenu", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
-    const pause = (await screen.findByText("Pause")).closest("[role='menuitem']");
-    expect(pause).toHaveAttribute("data-disabled");
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Pause" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Deep sleep" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Resume" })).toBeEnabled();
   });
 
   it("opens a terminal for Running sandboxes", async () => {
@@ -104,11 +109,11 @@ describe("VmActionsMenu", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
-    const item = (await screen.findByText("Open terminal")).closest("[role='menuitem']");
-    expect(item).not.toHaveAttribute("data-disabled");
+    await openMenu();
+    const terminalItem = screen.getByRole("menuitem", { name: "Open terminal" });
+    expect(terminalItem).toBeEnabled();
 
-    fireEvent.click(screen.getByText("Open terminal"));
+    fireEvent.click(terminalItem);
     expect(onExec).toHaveBeenCalledWith(sandbox);
   });
 
@@ -125,8 +130,7 @@ describe("VmActionsMenu", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions for web-1" }));
-    const item = (await screen.findByText("Open terminal")).closest("[role='menuitem']");
-    expect(item).toHaveAttribute("data-disabled");
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Open terminal" })).toBeDisabled();
   });
 });

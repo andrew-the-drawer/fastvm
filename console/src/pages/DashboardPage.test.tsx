@@ -1,13 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { App as AntdApp, ConfigProvider } from "antd";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { AuthContext } from "../auth/context";
 import type { AuthContextValue } from "../auth/context";
-import DashboardPage from "./DashboardPage";
-import { buildTheme } from "../theme";
-import { ThemeProvider } from "../theme/ThemeProvider";
 import { installDomStubs } from "../components/test-dom";
+import { ThemeProvider } from "../theme/ThemeProvider";
+import { ToastProvider } from "../ui";
+import DashboardPage from "./DashboardPage";
 
 function fakeResponse(body: unknown): Response {
   return {
@@ -118,15 +117,13 @@ function renderDashboard() {
   });
   return render(
     <ThemeProvider>
-      <ConfigProvider theme={buildTheme("dark")}>
-        <AntdApp>
-          <QueryClientProvider client={queryClient}>
-            <AuthContext.Provider value={auth}>
-              <DashboardPage />
-            </AuthContext.Provider>
-          </QueryClientProvider>
-        </AntdApp>
-      </ConfigProvider>
+      <ToastProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthContext.Provider value={auth}>
+            <DashboardPage />
+          </AuthContext.Provider>
+        </QueryClientProvider>
+      </ToastProvider>
     </ThemeProvider>,
   );
 }
@@ -147,5 +144,19 @@ describe("DashboardPage integration", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Create VM" }));
     expect(await screen.findByText("Create virtual machine")).toBeInTheDocument();
     expect(await screen.findByText("Base image")).toBeInTheDocument();
+  });
+
+  it("renders the sidebar shell and toggles the mobile sidebar", async () => {
+    renderDashboard();
+
+    const toggle = await screen.findByRole("button", { name: "Open sidebar" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", "app-sidebar");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("navigation", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sandboxes" })).toBeInTheDocument();
   });
 });

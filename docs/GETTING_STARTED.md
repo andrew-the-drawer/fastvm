@@ -119,8 +119,15 @@ shell (or with `sudo`). In another root shell:
 ```sh
 export FASTVM_SOCKET=/run/fastvm/fastvm.sock
 bin/fastvm version
-# fastvm 0.1.0
+# fastvm 1.2.3-4-ga6f516a        (nearest tag/commit; -dirty for a dirty tree)
+# fastvmd 1.2.3-4-ga6f516a
 ```
+
+The build identity is injected by `make build` from `git describe --tags
+--always` (plus `-dirty` when the worktree has changes) and is also served by
+`GET /v1/version`. `bin/fastvm --version` and `bin/fastvmd -version` print only
+that binary's build identity; `fastvm version` prints the CLI and daemon
+versions together. Plain `go build` falls back to the VCS revision Go embeds.
 
 Every command also accepts `-socket /path/fastvm.sock` **before** the
 subcommand.

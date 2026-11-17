@@ -26,18 +26,18 @@ function renderLogin(overrides: Partial<AuthContextValue> = {}) {
 }
 
 describe("LoginPage", () => {
-  it("renders the product pitch and starts the OIDC redirect", () => {
+  it("renders the sign-in card and starts the login redirect", () => {
     installDomStubs();
     const { auth } = renderLogin();
 
-    expect(screen.getByRole("heading", { name: /Micro-VMs that sleep/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getAllByText(/fastvm/i).length).toBeGreaterThan(0);
 
-    const button = screen.getByRole("button", { name: "Sign in with Keycloak" });
+    const button = screen.getByRole("button", { name: "Sign in with SSO" });
     fireEvent.click(button);
 
     expect(auth.login).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: /Redirecting to Keycloak/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Redirecting/ })).toBeInTheDocument();
   });
 
   it("surfaces authentication errors", () => {
@@ -48,7 +48,7 @@ describe("LoginPage", () => {
     expect(screen.getByText(/Your session has expired/)).toBeInTheDocument();
   });
 
-  it("does not render credential fields (OIDC handles auth)", () => {
+  it("does not render credential fields", () => {
     installDomStubs();
     renderLogin();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();

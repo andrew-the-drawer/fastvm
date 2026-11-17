@@ -1,6 +1,14 @@
 GO ?= go
 BIN := bin
 
+# Version identity: nearest tag or short commit. -dirty is appended whenever the
+# worktree is dirty, even when VERSION is overridden for a release build.
+GIT_VERSION := $(shell git describe --tags --always 2>/dev/null | sed 's/^v//')
+VERSION ?= $(if $(GIT_VERSION),$(GIT_VERSION),dev)
+DIRTY := $(shell [ -n "$$(git status --porcelain 2>/dev/null)" ] && echo -dirty)
+BUILD_VERSION := $(VERSION)$(DIRTY)
+LDFLAGS := -X fastvm/internal/version.version=$(BUILD_VERSION)
+
 # Install layout (override PREFIX/DESTDIR for packaging or per-user installs).
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -13,9 +21,13 @@ all: fmt vet build test
 
 build:
 	mkdir -p $(BIN)
-	$(GO) build -o $(BIN)/fastvm ./cmd/fastvm
-	$(GO) build -o $(BIN)/fastvmd ./cmd/fastvmd
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvm ./cmd/fastvm
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmd ./cmd/fastvmd
 	CGO_ENABLED=0 $(GO) build -o $(BIN)/fastvm-agent ./cmd/fastvm-agent
+
+# Print the version the next build would embed.
+version:
+	@echo $(BUILD_VERSION)
 
 # Default prefix is /usr/local, so this usually needs sudo. Override with
 # PREFIX=$HOME/.local for an unprivileged install, or DESTDIR=... for packaging.

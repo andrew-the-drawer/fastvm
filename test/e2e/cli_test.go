@@ -45,7 +45,7 @@ func TestCLIOverUnixSocket(t *testing.T) {
 		return string(out)
 	}
 
-	if out := run("version"); !strings.Contains(out, "0.1.0") {
+	if out := run("version"); !strings.Contains(out, "fastvm ") || !strings.Contains(out, "fastvmd ") {
 		t.Fatalf("version output = %q", out)
 	}
 

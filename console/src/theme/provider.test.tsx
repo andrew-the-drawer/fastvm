@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { installMatchMedia } from "../components/test-dom";
-import { buildTheme, darkPalette, lightPalette } from "../theme";
 import { ThemeProvider } from "./ThemeProvider";
 import { parseThemeMode, resolveThemeMode, THEME_STORAGE_KEY, useTheme } from "./theme-mode";
 
@@ -124,21 +123,5 @@ describe("ThemeProvider", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "set-auto" }));
     expect(screen.getByTestId("resolved")).toHaveTextContent("dark");
-  });
-});
-
-describe("buildTheme", () => {
-  it("builds matching light and dark antd token sets", () => {
-    const dark = buildTheme("dark");
-    const light = buildTheme("light");
-
-    expect(dark.token?.colorPrimary).toBe(darkPalette.accent);
-    expect(light.token?.colorPrimary).toBe(lightPalette.accent);
-    expect(dark.components?.Layout?.headerBg).toBe(darkPalette.bgHeader);
-    expect(light.components?.Layout?.headerBg).toBe(lightPalette.bgHeader);
-    expect(light.token?.colorBgContainer).toBe("#ffffff");
-    expect(dark.token?.colorBgContainer).toBe(darkPalette.bgContainer);
-    // Cached so ConfigProvider keeps a stable theme object.
-    expect(buildTheme("light")).toBe(light);
   });
 });

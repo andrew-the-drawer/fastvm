@@ -45,6 +45,8 @@ describe("UserMenu", () => {
       user: { subject: "service-account", roles: [] },
     });
     expect(screen.getByText("service-account")).toBeInTheDocument();
-    expect(screen.getByText("SA")).toBeInTheDocument();
+    const avatar = screen.getByAltText("service-account avatar");
+    expect(avatar).toBeInTheDocument();
+    expect(avatar.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
   });
 });

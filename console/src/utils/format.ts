@@ -161,8 +161,6 @@ export type SandboxStateTone =
 export interface SandboxStateMeta {
   /** Human label for the state tag. */
   readonly label: string;
-  /** antd `<Tag color>` preset. */
-  readonly color: string;
   /** One-line explanation shown in tooltips. */
   readonly description: string;
   /** Coarse bucket for counters/row styling. */
@@ -172,67 +170,57 @@ export interface SandboxStateMeta {
 const SANDBOX_STATE_META: Record<SandboxState, SandboxStateMeta> = {
   Creating: {
     label: "Creating",
-    color: "geekblue",
     description: "The base disk is being cloned into a fresh writable volume.",
     tone: "transitional",
   },
   Starting: {
     label: "Starting",
-    color: "blue",
     description: "The VM is booting and waiting for the guest agent to connect.",
     tone: "transitional",
   },
   Running: {
     label: "Running",
-    color: "green",
     description: "vCPUs are executing and the guest is handling work.",
     tone: "active",
   },
   Idle: {
     label: "Idle",
-    color: "cyan",
     description: "Awake but quiet; it pauses automatically after the idle timeout.",
     tone: "idle",
   },
   Paused: {
     label: "Paused",
-    color: "gold",
     description: "vCPUs are halted; traffic is queued and wakes it on the first packet.",
     tone: "sleeping",
   },
   Dormant: {
     label: "Dormant",
-    color: "purple",
     description: "Guest memory has been offloaded to a file; it still wakes on traffic.",
     tone: "sleeping",
   },
   Resuming: {
     label: "Resuming",
-    color: "blue",
     description: "vCPUs are restarting and buffered traffic is being drained.",
     tone: "transitional",
   },
   Stopping: {
     label: "Stopping",
-    color: "orange",
     description: "The sandbox is shutting down.",
     tone: "transitional",
   },
   Stopped: {
     label: "Stopped",
-    color: "default",
     description: "The VM has shut down and can be deleted.",
     tone: "stopped",
   },
   Failed: {
     label: "Failed",
-    color: "red",
     description: "The sandbox hit an unrecoverable error; inspect the error and delete it.",
     tone: "failed",
   },
 };
 
-/** Label, antd tag color and description for a sandbox lifecycle state. */
+/** Label, tone bucket and description for a sandbox lifecycle state. */
 export function sandboxStateMeta(state: SandboxState): SandboxStateMeta {
   return SANDBOX_STATE_META[state];
 }

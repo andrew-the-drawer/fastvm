@@ -59,7 +59,7 @@ func TestDaemonBinarySmoke(t *testing.T) {
 		}
 		return string(out)
 	}
-	if out := runCLI("version"); !strings.Contains(out, "fastvm 0.1.0") {
+	if out := runCLI("version"); !strings.Contains(out, "fastvm ") || !strings.Contains(out, "fastvmd ") {
 		t.Fatalf("version = %q", out)
 	}
 	if out := runCLI("image", "ls"); !strings.Contains(out, "TAG") {

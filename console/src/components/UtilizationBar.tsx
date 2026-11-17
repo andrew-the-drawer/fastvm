@@ -1,5 +1,5 @@
-import { Progress } from "antd";
 import type { ReactNode } from "react";
+import { cn } from "../ui";
 import { clampPercent, formatPercent } from "../utils/format";
 
 export interface UtilizationBarProps {
@@ -9,19 +9,19 @@ export interface UtilizationBarProps {
   percent: number;
   /** Optional caption rendered under the bar (e.g. "312 MiB / 512 MiB"). */
   detail?: ReactNode;
-  /** Explicit bar color; defaults to a green/amber/red threshold ramp. */
+  /** Explicit fill color; defaults to an indigo/amber/red threshold ramp. */
   color?: string;
   className?: string;
 }
 
 function thresholdColor(percent: number): string {
   if (percent >= 85) {
-    return "#f87171";
+    return "#dc2626"; // red-600
   }
   if (percent >= 60) {
-    return "#fbbf24";
+    return "#f59e0b"; // amber-500
   }
-  return "#5eead4";
+  return "#4f46e5"; // indigo-600
 }
 
 /**
@@ -30,22 +30,32 @@ function thresholdColor(percent: number): string {
  */
 export function UtilizationBar({ label, percent, detail, color, className }: UtilizationBarProps) {
   const clamped = clampPercent(percent);
-  const classes = className === undefined ? "utilization-bar" : `utilization-bar ${className}`;
+  const fill = color ?? thresholdColor(clamped);
 
   return (
-    <div className={classes} data-percent={clamped}>
-      <div className="utilization-bar-head">
-        <span className="utilization-bar-label">{label}</span>
-        <span className="utilization-bar-value">{formatPercent(clamped)}</span>
+    <div className={cn("min-w-0", className)} data-percent={clamped}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
+        <span className="text-sm font-medium text-gray-900 tabular-nums dark:text-white">
+          {formatPercent(clamped)}
+        </span>
       </div>
-      <Progress
-        percent={clamped}
-        showInfo={false}
-        size="small"
-        strokeColor={color ?? thresholdColor(clamped)}
-        railColor="rgba(148, 163, 184, 0.18)"
-      />
-      {detail !== undefined ? <div className="utilization-bar-detail">{detail}</div> : null}
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={clamped}
+        className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+      >
+        <div
+          className="h-full rounded-full transition-[width] duration-300"
+          style={{ width: `${clamped}%`, backgroundColor: fill }}
+        />
+      </div>
+      {detail !== undefined ? (
+        <div className="mt-1.5 text-xs text-gray-500 tabular-nums dark:text-gray-400">{detail}</div>
+      ) : null}
     </div>
   );
 }

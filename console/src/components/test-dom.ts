@@ -1,7 +1,7 @@
 import { act } from "@testing-library/react";
 
 /**
- * jsdom lacks a couple of browser APIs that antd's responsive observer and
+ * jsdom lacks a couple of browser APIs that overlay components and
  * ResizeObserver-driven components expect. Tests call this once before
  * rendering; it is intentionally a no-op when the APIs already exist.
  */

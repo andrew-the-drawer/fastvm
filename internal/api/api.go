@@ -19,6 +19,7 @@ import (
 	"fastvm/internal/agent"
 	"fastvm/internal/manager"
 	"fastvm/internal/types"
+	"fastvm/internal/version"
 )
 
 // Server is the HTTP API server. It is transport-agnostic (tests use
@@ -97,7 +98,7 @@ func dirOf(path string) string {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": "0.1.0", "name": "fastvm"})
+	writeJSON(w, http.StatusOK, map[string]string{"version": version.String(), "name": "fastvm"})
 }
 
 func (s *Server) handleListImages(w http.ResponseWriter, r *http.Request) {

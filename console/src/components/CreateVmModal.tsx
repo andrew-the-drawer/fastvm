@@ -1,20 +1,8 @@
-import {
-  Alert,
-  App as AntdApp,
-  Button,
-  Flex,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Select,
-  Switch,
-  Tooltip,
-} from "antd";
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { CreateSandboxInput } from "../lib/api";
 import { useCreateSandbox, useImages } from "../lib/queries";
+import { Button, Field, Input, Modal, Select, Switch, useToast } from "../ui";
 import { describeError } from "../utils/errors";
 import { formatBytes, imageLabel } from "../utils/format";
 import { HardDriveIcon, InfoIcon, PlusIcon, ServerIcon, TrashIcon } from "./icons";
@@ -25,41 +13,80 @@ export interface CreateVmModalProps {
   onCreated?: (sandbox: { id: string; name: string }) => void;
 }
 
-interface VolumeFormValue {
-  host_path?: string;
-  guest_path?: string;
-  read_only?: boolean;
+interface VolumeRow {
+  id: number;
+  host_path: string;
+  guest_path: string;
+  read_only: boolean;
 }
 
-interface CreateVmFormValues {
-  image: string;
+interface VolumeErrors {
+  host?: string;
+  guest?: string;
+}
+
+interface FormErrors {
+  image?: string;
   name?: string;
-  vcpus: number;
-  memory_mb: number;
-  no_auto_sleep: boolean;
-  volumes?: VolumeFormValue[];
+  vcpus?: string;
+  memory_mb?: string;
 }
 
-const DEFAULT_VALUES: Partial<CreateVmFormValues> = {
-  vcpus: 2,
-  memory_mb: 512,
-  no_auto_sleep: false,
-  volumes: [],
-};
+const DEFAULT_VCPUS = "2";
+const DEFAULT_MEMORY = "512";
 
-/** Create-sandbox dialog: image, optional name, vCPUs, memory and auto-sleep. */
+function validateVolume(volume: VolumeRow): VolumeErrors {
+  const errors: VolumeErrors = {};
+  const hostPath = volume.host_path.trim();
+  const guestPath = volume.guest_path.trim();
+  if (hostPath === "") {
+    errors.host = "Host path is required.";
+  } else if (!hostPath.startsWith("/")) {
+    errors.host = "Host path must be absolute (start with /).";
+  }
+  if (guestPath === "") {
+    errors.guest = "Guest mount is required.";
+  } else if (!/^\/[^\s:,]*$/.test(guestPath)) {
+    errors.guest = "Absolute path, no spaces, ':' or ','.";
+  }
+  return errors;
+}
+
+/** Create-sandbox dialog: image, optional name, vCPUs, memory, auto-sleep and host volumes. */
 export function CreateVmModal({ open, onClose, onCreated }: CreateVmModalProps) {
-  const { message } = AntdApp.useApp();
+  const toast = useToast();
   const images = useImages();
   const createSandbox = useCreateSandbox();
-  const [form] = Form.useForm<CreateVmFormValues>();
+  const nextVolumeId = useRef(1);
+
+  const [image, setImage] = useState("");
+  const [name, setName] = useState("");
+  const [vcpus, setVcpus] = useState(DEFAULT_VCPUS);
+  const [memoryMb, setMemoryMb] = useState(DEFAULT_MEMORY);
+  const [noAutoSleep, setNoAutoSleep] = useState(false);
+  const [volumes, setVolumes] = useState<VolumeRow[]>([]);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [volumeErrors, setVolumeErrors] = useState<Record<number, VolumeErrors>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const isCreating = createSandbox.isPending;
   const imageList = images.data ?? [];
   const noImages = !images.isPending && images.isError === false && imageList.length === 0;
 
-  const handleCancel = () => {
+  const resetForm = () => {
+    setImage("");
+    setName("");
+    setVcpus(DEFAULT_VCPUS);
+    setMemoryMb(DEFAULT_MEMORY);
+    setNoAutoSleep(false);
+    setVolumes([]);
+    setErrors({});
+    setVolumeErrors({});
+    setSubmitError(null);
+    nextVolumeId.current = 1;
+  };
+
+  const handleClose = () => {
     if (isCreating) {
       return;
     }
@@ -67,71 +94,129 @@ export function CreateVmModal({ open, onClose, onCreated }: CreateVmModalProps) 
     onClose();
   };
 
-  const handleFinish = async (values: CreateVmFormValues) => {
+  const addVolume = () => {
+    const id = nextVolumeId.current;
+    nextVolumeId.current += 1;
+    setVolumes((current) => [...current, { id, host_path: "", guest_path: "", read_only: false }]);
+  };
+
+  const removeVolume = (id: number) => {
+    setVolumes((current) => current.filter((volume) => volume.id !== id));
+    setVolumeErrors((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const updateVolume = (id: number, patch: Partial<Omit<VolumeRow, "id">>) => {
+    setVolumes((current) =>
+      current.map((volume) => (volume.id === id ? { ...volume, ...patch } : volume)),
+    );
+    setVolumeErrors((current) => {
+      if (current[id] === undefined) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const validate = (): boolean => {
+    const nextErrors: FormErrors = {};
+    if (image === "") {
+      nextErrors.image = "Choose a base disk image.";
+    }
+    const trimmedName = name.trim();
+    if (trimmedName.length > 63) {
+      nextErrors.name = "Keep the name to 63 characters or fewer.";
+    } else if (trimmedName !== "" && !/^[A-Za-z0-9._-]+$/.test(trimmedName)) {
+      nextErrors.name = "Use letters, numbers, dots, dashes or underscores.";
+    }
+    const vcpuCount = Number(vcpus);
+    if (vcpus.trim() === "" || !Number.isInteger(vcpuCount) || vcpuCount < 1 || vcpuCount > 8) {
+      nextErrors.vcpus = "vCPUs must be a whole number between 1 and 8.";
+    }
+    const memory = Number(memoryMb);
+    if (memoryMb.trim() === "" || !Number.isInteger(memory) || memory < 64 || memory > 4096) {
+      nextErrors.memory_mb = "Memory must be a whole number between 64 and 4096 MB.";
+    }
+
+    const nextVolumeErrors: Record<number, VolumeErrors> = {};
+    for (const volume of volumes) {
+      const volumeError = validateVolume(volume);
+      if (volumeError.host !== undefined || volumeError.guest !== undefined) {
+        nextVolumeErrors[volume.id] = volumeError;
+      }
+    }
+
+    setErrors(nextErrors);
+    setVolumeErrors(nextVolumeErrors);
+    return Object.keys(nextErrors).length === 0 && Object.keys(nextVolumeErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
     setSubmitError(null);
-    const trimmedName = values.name?.trim() ?? "";
+    if (!validate()) {
+      return;
+    }
+    const trimmedName = name.trim();
     const input: CreateSandboxInput = {
-      image: values.image,
-      vcpus: values.vcpus,
-      memory_mb: values.memory_mb,
-      no_auto_sleep: values.no_auto_sleep,
+      image,
+      vcpus: Number(vcpus),
+      memory_mb: Number(memoryMb),
+      no_auto_sleep: noAutoSleep,
     };
     if (trimmedName !== "") {
       input.name = trimmedName;
     }
-    const volumes = (values.volumes ?? []).flatMap((volume) => {
-      const hostPath = volume.host_path?.trim() ?? "";
-      const guestPath = volume.guest_path?.trim() ?? "";
-      if (hostPath === "" || guestPath === "") {
-        return [];
-      }
-      return [
-        {
-          host_path: hostPath,
-          guest_path: guestPath,
-          read_only: volume.read_only === true,
-        },
-      ];
-    });
     if (volumes.length > 0) {
-      input.volumes = volumes;
+      input.volumes = volumes.map((volume) => ({
+        host_path: volume.host_path.trim(),
+        guest_path: volume.guest_path.trim(),
+        read_only: volume.read_only,
+      }));
     }
     try {
       const created = await createSandbox.mutateAsync(input);
-      message.success(`Sandbox ${created.name} is being created`);
-      form.resetFields();
+      toast.success(`Sandbox ${created.name} is being created`);
+      resetForm();
       onCreated?.({ id: created.id, name: created.name });
       onClose();
     } catch (error) {
       const description = describeError(error);
       setSubmitError(description);
-      message.error(description);
+      toast.error(description);
     }
   };
 
-  let imageFieldExtra: ReactNode;
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleSubmit();
+  };
+
+  let imageHint: ReactNode;
   if (images.isError) {
-    imageFieldExtra = (
-      <Alert
-        type="error"
-        showIcon
-        title="Could not load base images"
-        description={describeError(images.error)}
-      />
+    imageHint = (
+      <span className="text-red-600 dark:text-red-400">
+        Could not load base images: {describeError(images.error)}
+      </span>
     );
   } else if (noImages) {
-    imageFieldExtra = (
-      <Alert
-        type="warning"
-        showIcon
-        title="No base disk images available"
-        description="Build an image first (for example `make image` in the repository root), then reopen this dialog."
-      />
+    imageHint = (
+      <span className="text-amber-600 dark:text-amber-400">
+        No base disk images available. Build an image first (for example `make image` in the
+        repository root), then reopen this dialog.
+      </span>
     );
+  } else if (images.isPending) {
+    imageHint = <span>Loading images…</span>;
   } else {
-    imageFieldExtra = (
+    imageHint = (
       <span className="form-hint">
-        <HardDriveIcon /> Base disks are read-only; each VM gets a copy-on-write volume.
+        <HardDriveIcon className="size-3.5" /> Base disks are read-only; each VM gets a
+        copy-on-write volume.
       </span>
     );
   }
@@ -139,201 +224,229 @@ export function CreateVmModal({ open, onClose, onCreated }: CreateVmModalProps) 
   return (
     <Modal
       open={open}
-      onCancel={handleCancel}
-      onOk={() => {
-        form.submit();
-      }}
-      okText="Create VM"
-      cancelText="Cancel"
-      confirmLoading={isCreating}
-      cancelButtonProps={{ disabled: isCreating }}
-      closable={!isCreating}
-      keyboard={!isCreating}
-      mask={{ closable: !isCreating }}
-      width={620}
+      onClose={handleClose}
+      size="lg"
       title={
-        <span className="modal-title">
-          <span className="modal-title-icon">
-            <ServerIcon />
+        <span className="flex items-center gap-2">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+            <ServerIcon className="size-4" />
           </span>
           Create virtual machine
         </span>
       }
+      footer={
+        <>
+          <Button onClick={handleClose} disabled={isCreating}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={isCreating} onClick={() => void handleSubmit()}>
+            Create VM
+          </Button>
+        </>
+      }
     >
-      <Form<CreateVmFormValues>
-        form={form}
-        layout="vertical"
-        className="create-vm-form"
-        initialValues={DEFAULT_VALUES}
-        onFinish={(values) => {
-          void handleFinish(values);
-        }}
-        disabled={isCreating}
-        requiredMark={false}
-      >
-        <Form.Item
-          name="image"
+      <form className="flex flex-col gap-4" onSubmit={handleFormSubmit} noValidate>
+        <Field
           label="Base image"
-          rules={[{ required: true, message: "Choose a base disk image." }]}
-          extra={imageFieldExtra}
+          htmlFor="create-image"
+          required
+          error={errors.image}
+          hint={imageHint}
         >
           <Select
-            placeholder={images.isPending ? "Loading images…" : "Select an image"}
-            loading={images.isPending}
-            disabled={images.isPending || noImages}
-            showSearch
-            optionFilterProp="label"
-            options={imageList.map((image) => ({
-              value: image.digest,
-              label: `${imageLabel(image)} · ${formatBytes(image.size_bytes)}`,
-            }))}
-            notFoundContent={images.isPending ? "Loading…" : "No images found"}
+            id="create-image"
+            value={image}
+            disabled={images.isPending || noImages || isCreating}
+            onChange={(event) => {
+              setImage(event.target.value);
+              setErrors((current) => ({ ...current, image: undefined }));
+            }}
+          >
+            <option value="">{images.isPending ? "Loading images…" : "Select an image"}</option>
+            {imageList.map((availableImage) => (
+              <option key={availableImage.digest} value={availableImage.digest}>
+                {imageLabel(availableImage)} · {formatBytes(availableImage.size_bytes)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Name (optional)" htmlFor="create-name" error={errors.name}>
+          <Input
+            id="create-name"
+            placeholder="auto: sb-…"
+            autoComplete="off"
+            value={name}
+            disabled={isCreating}
+            onChange={(event) => {
+              setName(event.target.value);
+              setErrors((current) => ({ ...current, name: undefined }));
+            }}
           />
-        </Form.Item>
+        </Field>
 
-        <Form.Item
-          name="name"
-          label="Name (optional)"
-          rules={[
-            { max: 63, message: "Keep the name to 63 characters or fewer." },
-            {
-              pattern: /^[A-Za-z0-9._-]+$/,
-              message: "Use letters, numbers, dots, dashes or underscores.",
-            },
-          ]}
-        >
-          <Input placeholder="auto: sb-…" autoComplete="off" />
-        </Form.Item>
-
-        <div className="create-vm-row">
-          <Form.Item
-            name="vcpus"
-            label="vCPUs"
-            rules={[{ required: true, message: "Set the vCPU count." }]}
-          >
-            <InputNumber min={1} max={8} step={1} precision={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item
-            name="memory_mb"
-            label="Memory (MB)"
-            rules={[{ required: true, message: "Set the memory size." }]}
-          >
-            <InputNumber min={64} max={4096} step={64} precision={0} style={{ width: "100%" }} />
-          </Form.Item>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="vCPUs" htmlFor="create-vcpus" required error={errors.vcpus}>
+            <Input
+              id="create-vcpus"
+              type="number"
+              min={1}
+              max={8}
+              step={1}
+              value={vcpus}
+              disabled={isCreating}
+              onChange={(event) => {
+                setVcpus(event.target.value);
+                setErrors((current) => ({ ...current, vcpus: undefined }));
+              }}
+            />
+          </Field>
+          <Field label="Memory (MB)" htmlFor="create-memory" required error={errors.memory_mb}>
+            <Input
+              id="create-memory"
+              type="number"
+              min={64}
+              max={4096}
+              step={64}
+              value={memoryMb}
+              disabled={isCreating}
+              onChange={(event) => {
+                setMemoryMb(event.target.value);
+                setErrors((current) => ({ ...current, memory_mb: undefined }));
+              }}
+            />
+          </Field>
         </div>
 
-        <Form.List name="volumes">
-          {(fields, { add, remove }) => (
-            <div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  marginTop: 8,
-                  fontWeight: 600,
-                }}
-              >
-                <HardDriveIcon /> Host volumes (virtio-fs)
-              </div>
-              <p style={{ margin: "4px 0 0", color: "var(--text-5)", fontSize: 11.5 }}>
-                Mount host directories into the guest. fastvmd enforces the configured
-                <code> volumes.allowed_host_prefixes</code> allowlist.
-              </p>
-              <Flex vertical gap={0} style={{ marginTop: 8 }}>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Flex key={key} gap={8} align="flex-end" wrap>
-                    <Form.Item
-                      {...restField}
-                      name={[name, "host_path"]}
-                      label="Host path"
-                      rules={[
-                        { required: true, message: "Host path is required." },
-                        {
-                          pattern: /^\//,
-                          message: "Host path must be absolute (start with /).",
-                        },
-                      ]}
-                      style={{ flex: "1 1 170px", marginBottom: 8 }}
-                    >
-                      <Input placeholder="/host/dir" autoComplete="off" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, "guest_path"]}
-                      label="Guest mount"
-                      rules={[
-                        { required: true, message: "Guest mount is required." },
-                        {
-                          pattern: /^\/[^\s:,]*$/,
-                          message: "Absolute path, no spaces, ':' or ','.",
-                        },
-                      ]}
-                      style={{ flex: "1 1 150px", marginBottom: 8 }}
-                    >
-                      <Input placeholder="/mnt/data" autoComplete="off" />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, "read_only"]}
-                      label="Read-only"
-                      valuePropName="checked"
-                      style={{ marginBottom: 8 }}
-                    >
-                      <Switch aria-label="Read-only volume" />
-                    </Form.Item>
-                    <Form.Item style={{ marginBottom: 8 }}>
-                      <Button
-                        type="text"
-                        danger
-                        aria-label="Remove volume"
-                        disabled={isCreating}
-                        onClick={() => remove(name)}
-                      >
-                        <TrashIcon />
-                      </Button>
-                    </Form.Item>
-                  </Flex>
-                ))}
-              </Flex>
-              <Button
-                type="dashed"
-                block
-                icon={<PlusIcon />}
-                style={{ marginBottom: 16 }}
-                disabled={isCreating}
-                onClick={() => add({ read_only: false })}
-              >
-                Add volume
-              </Button>
-            </div>
-          )}
-        </Form.List>
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-900 dark:text-white">
+            <HardDriveIcon className="size-4 text-gray-500 dark:text-gray-400" /> Host volumes
+            (virtio-fs)
+          </div>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Mount host directories into the guest. fastvmd enforces the configured
+            <code> volumes.allowed_host_prefixes</code> allowlist.
+          </p>
 
-        <Form.Item
-          name="no_auto_sleep"
+          {volumes.length > 0 ? (
+            <div className="mt-2 flex flex-col gap-2">
+              {volumes.map((volume) => {
+                const rowErrors = volumeErrors[volume.id];
+                return (
+                  <div
+                    key={volume.id}
+                    className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50"
+                  >
+                    <Field
+                      label="Host path"
+                      htmlFor={`volume-host-${volume.id}`}
+                      error={rowErrors?.host}
+                      className="min-w-[170px] flex-1"
+                    >
+                      <Input
+                        id={`volume-host-${volume.id}`}
+                        placeholder="/host/dir"
+                        autoComplete="off"
+                        value={volume.host_path}
+                        disabled={isCreating}
+                        onChange={(event) => {
+                          updateVolume(volume.id, { host_path: event.target.value });
+                        }}
+                      />
+                    </Field>
+                    <Field
+                      label="Guest mount"
+                      htmlFor={`volume-guest-${volume.id}`}
+                      error={rowErrors?.guest}
+                      className="min-w-[150px] flex-1"
+                    >
+                      <Input
+                        id={`volume-guest-${volume.id}`}
+                        placeholder="/mnt/data"
+                        autoComplete="off"
+                        value={volume.guest_path}
+                        disabled={isCreating}
+                        onChange={(event) => {
+                          updateVolume(volume.id, { guest_path: event.target.value });
+                        }}
+                      />
+                    </Field>
+                    <Field label="Read-only" htmlFor={`volume-ro-${volume.id}`} className="w-24">
+                      <div className="flex h-9 items-center">
+                        <Switch
+                          id={`volume-ro-${volume.id}`}
+                          checked={volume.read_only}
+                          disabled={isCreating}
+                          onChange={(checked) => {
+                            updateVolume(volume.id, { read_only: checked });
+                          }}
+                        />
+                      </div>
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Remove volume"
+                      disabled={isCreating}
+                      className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      onClick={() => removeVolume(volume.id)}
+                      icon={<TrashIcon className="size-4" />}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <Button
+            variant="secondary"
+            className="mt-2 w-full border-dashed border-gray-300 bg-transparent px-4 py-2.5 text-sm text-gray-600 hover:border-indigo-400 hover:bg-transparent hover:text-indigo-600 dark:border-gray-700 dark:bg-transparent dark:text-gray-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+            icon={<PlusIcon className="size-4" />}
+            disabled={isCreating}
+            onClick={addVolume}
+          >
+            Add volume
+          </Button>
+        </div>
+
+        <Field
           label={
-            <span className="switch-label">
+            <span className="inline-flex items-center gap-1.5">
               Disable automatic sleep
-              <Tooltip title="When enabled, fastvmd keeps this sandbox awake even when it is idle. It uses host resources continuously.">
-                <InfoIcon className="switch-label-icon" />
-              </Tooltip>
+              <span
+                title="When enabled, fastvmd keeps this sandbox awake even when it is idle. It uses host resources continuously."
+                className="inline-flex"
+              >
+                <InfoIcon className="size-3.5 text-gray-400 dark:text-gray-500" />
+              </span>
             </span>
           }
-          valuePropName="checked"
+          htmlFor="create-no-auto-sleep"
         >
-          <Switch checkedChildren="On" unCheckedChildren="Off" />
-        </Form.Item>
+          <div className="flex h-9 items-center">
+            <Switch
+              id="create-no-auto-sleep"
+              checked={noAutoSleep}
+              disabled={isCreating}
+              onChange={setNoAutoSleep}
+            />
+          </div>
+        </Field>
 
         {submitError !== null ? (
-          <Alert className="create-vm-error" type="error" showIcon title={submitError} />
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          >
+            {submitError}
+          </div>
         ) : null}
 
-        <div className="create-vm-footnote">
-          <PlusIcon /> The sandbox boots from a copy-on-write volume and appears in the list
-          immediately.
+        <div className="flex items-center gap-2 border-t border-gray-100 pt-4 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          <PlusIcon className="size-4 text-indigo-600 dark:text-indigo-400" /> The sandbox boots
+          from a copy-on-write volume and appears in the list immediately.
         </div>
-      </Form>
+      </form>
     </Modal>
   );
 }

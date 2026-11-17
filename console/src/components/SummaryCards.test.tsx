@@ -36,24 +36,28 @@ describe("SummaryCards", () => {
       sandbox("stopped", "Stopped"),
       sandbox("creating", "Creating"),
     ];
-    const { container } = render(<SummaryCards sandboxes={sandboxes} />);
+    render(<SummaryCards sandboxes={sandboxes} />);
 
     expect(screen.getByText("Total VMs")).toBeInTheDocument();
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByText("Sleeping")).toBeInTheDocument();
     expect(screen.getByText("Failed / stopped")).toBeInTheDocument();
+    expect(screen.getByTestId("summary-value-total").closest("[data-tone]")).toHaveAttribute(
+      "data-tone",
+      "total",
+    );
 
-    const values = Array.from(container.querySelectorAll(".ant-statistic-content-value")).map(
-      (node) => node.textContent,
+    const values = ["total", "running", "sleeping", "failed"].map(
+      (key) => screen.getByTestId(`summary-value-${key}`).textContent,
     );
     expect(values).toEqual(["7", "2", "2", "2"]);
   });
 
   it("renders zero counts for an empty list", () => {
     installDomStubs();
-    const { container } = render(<SummaryCards sandboxes={[]} />);
-    const values = Array.from(container.querySelectorAll(".ant-statistic-content-value")).map(
-      (node) => node.textContent,
+    render(<SummaryCards sandboxes={[]} />);
+    const values = ["total", "running", "sleeping", "failed"].map(
+      (key) => screen.getByTestId(`summary-value-${key}`).textContent,
     );
     expect(values).toEqual(["0", "0", "0", "0"]);
   });

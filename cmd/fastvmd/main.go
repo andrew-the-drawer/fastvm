@@ -21,6 +21,7 @@ import (
 	"fastvm/internal/network"
 	"fastvm/internal/store"
 	l2switch "fastvm/internal/switch"
+	"fastvm/internal/version"
 	"fastvm/internal/vmm/cloudhypervisor"
 	"fastvm/internal/volume"
 )
@@ -33,6 +34,10 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) == 1 && (args[0] == "version" || args[0] == "-version" || args[0] == "--version") {
+		fmt.Printf("fastvmd %s\n", version.String())
+		return nil
+	}
 	fs := flag.NewFlagSet("fastvmd", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to config YAML (optional)")
 	socketPath := fs.String("socket", "", "override API unix socket path")
@@ -40,8 +45,13 @@ func run(args []string) error {
 	kernelPath := fs.String("kernel", "", "override kernel image path")
 	agentPath := fs.String("agent", "", "override guest agent binary path")
 	logLevel := fs.String("log-level", "info", "log level: debug|info|warn|error")
+	showVersion := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *showVersion {
+		fmt.Printf("fastvmd %s\n", version.String())
+		return nil
 	}
 	cfg, err := config.Load(*configPath)
 	if err != nil {

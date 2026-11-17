@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"fastvm/internal/types"
+	"fastvm/internal/version"
 )
 
 const defaultSocket = "/run/fastvm/fastvm.sock"
@@ -47,14 +48,19 @@ func run(args []string) error {
 		usage()
 		return errors.New("missing command")
 	}
+	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {
+		fmt.Printf("fastvm %s\n", version.String())
+		return nil
+	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
 	case "version":
+		fmt.Printf("fastvm %s\n", version.String())
 		var v map[string]string
 		if err := getJSON("/v1/version", &v); err != nil {
 			return err
 		}
-		fmt.Printf("fastvm %s\n", v["version"])
+		fmt.Printf("fastvmd %s\n", v["version"])
 		return nil
 	case "image":
 		return cmdImage(rest)

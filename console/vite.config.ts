@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import { fastvmProxy } from "./vite-plugins/fastvm-proxy.ts";
@@ -31,7 +32,7 @@ export default defineConfig({
       },
     ],
   },
-  plugins: lazyPlugins(() => [react(), fastvmProxy()]),
+  plugins: lazyPlugins(() => [react(), tailwindcss(), fastvmProxy()]),
   server: {
     // Bind IPv4 explicitly so http://127.0.0.1:5173 works everywhere; on some
     // hosts `localhost` resolves to ::1 only.
