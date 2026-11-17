@@ -10,7 +10,25 @@ preview, so no CORS or direct socket access from the browser is needed. Themes:
 dark, light, or follow the system appearance via the switch next to the user
 avatar (persisted per browser).
 
-![fastvm console](../docs/console.png)
+## Features
+
+- Keycloak OIDC login (authorization code + PKCE), session persisted per tab.
+- Sandbox dashboard: state, live CPU and memory utilization, uptime, wake counts.
+- Create VMs from base-disk images; pause, deep sleep, resume and delete them.
+- Detail drawer with live utilization and the lifecycle event log.
+- In-browser exec terminal rendered with [ghostty-web](https://github.com/coder/ghostty-web)
+  (Ghostty's VT100 parser compiled to WebAssembly) over a WebSocket PTY.
+- Dark, light and follow-the-system themes, switched next to the user avatar.
+
+## Screenshots
+
+Dark and light themes, side by side:
+
+![fastvm console in light and dark themes](../docs/console-themes.png)
+
+Exec terminal:
+
+![fastvm console exec terminal](../docs/console-terminal.png)
 
 ## Prerequisites
 

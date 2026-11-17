@@ -7,6 +7,8 @@ A single-host sandbox runtime built on Firecracker/KVM: sandboxes boot in
 themselves when a packet arrives — with the frame already queued in the guest's
 own virtio-net path.
 
+![fastvm console in light and dark themes](docs/console-themes.png)
+
 ![fastvm demo: boot, exec, pause, deep sleep, wake, delete](docs/demo.gif)
 
 One real session: boot a microVM, exec into it, pause it, page its RAM to disk,
@@ -68,29 +70,7 @@ Full walkthrough — config, images, PTY shell, wake-on-network, troubleshooting
 
 ## Web console
 
-`console/` is a React + Vite+ web UI for the daemon: sign in with Keycloak (OIDC
-authorization code + PKCE), watch sandboxes boot, pause, sleep and wake, act on
-them, track live CPU/memory utilization, and open an interactive shell inside any
-VM. The terminal is [ghostty-web](https://github.com/coder/ghostty-web) —
-Ghostty's VT100 parser compiled to WebAssembly. It ships dark and light themes
-plus a follow-the-system mode, switched next to the user avatar.
-
-![fastvm console dashboard](docs/console.png)
-
-Exec into a sandbox from the browser — the console streams a real PTY over a
-WebSocket:
-
-![fastvm console exec terminal](docs/console-terminal.png)
-
-```sh
-docker compose -f console/compose.yaml up -d    # Keycloak; test user demo / demo
-cd console && pnpm install && pnpm exec vp dev  # Node 24+, http://localhost:5173
-```
-
-It talks to `fastvmd` same-origin: a dev/preview proxy forwards `/v1/*` to the
-daemon's unix socket (`FASTVM_SOCKET`). See
-[console/README.md](console/README.md) for setup, OIDC configuration, the API it
-uses, and production notes.
+Setup, OIDC, the exec terminal and API details live in [console/README.md](console/README.md).
 
 ## Requirements
 
