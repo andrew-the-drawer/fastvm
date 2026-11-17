@@ -1,6 +1,8 @@
 import {
   Alert,
   App as AntdApp,
+  Button,
+  Flex,
   Form,
   Input,
   InputNumber,
@@ -15,12 +17,18 @@ import type { CreateSandboxInput } from "../lib/api";
 import { useCreateSandbox, useImages } from "../lib/queries";
 import { describeError } from "../utils/errors";
 import { formatBytes, imageLabel } from "../utils/format";
-import { HardDriveIcon, InfoIcon, PlusIcon, ServerIcon } from "./icons";
+import { HardDriveIcon, InfoIcon, PlusIcon, ServerIcon, TrashIcon } from "./icons";
 
 export interface CreateVmModalProps {
   open: boolean;
   onClose: () => void;
   onCreated?: (sandbox: { id: string; name: string }) => void;
+}
+
+interface VolumeFormValue {
+  host_path?: string;
+  guest_path?: string;
+  read_only?: boolean;
 }
 
 interface CreateVmFormValues {
@@ -29,12 +37,14 @@ interface CreateVmFormValues {
   vcpus: number;
   memory_mb: number;
   no_auto_sleep: boolean;
+  volumes?: VolumeFormValue[];
 }
 
 const DEFAULT_VALUES: Partial<CreateVmFormValues> = {
   vcpus: 2,
   memory_mb: 512,
   no_auto_sleep: false,
+  volumes: [],
 };
 
 /** Create-sandbox dialog: image, optional name, vCPUs, memory and auto-sleep. */
@@ -68,6 +78,23 @@ export function CreateVmModal({ open, onClose, onCreated }: CreateVmModalProps) 
     };
     if (trimmedName !== "") {
       input.name = trimmedName;
+    }
+    const volumes = (values.volumes ?? []).flatMap((volume) => {
+      const hostPath = volume.host_path?.trim() ?? "";
+      const guestPath = volume.guest_path?.trim() ?? "";
+      if (hostPath === "" || guestPath === "") {
+        return [];
+      }
+      return [
+        {
+          host_path: hostPath,
+          guest_path: guestPath,
+          read_only: volume.read_only === true,
+        },
+      ];
+    });
+    if (volumes.length > 0) {
+      input.volumes = volumes;
     }
     try {
       const created = await createSandbox.mutateAsync(input);
@@ -194,6 +221,94 @@ export function CreateVmModal({ open, onClose, onCreated }: CreateVmModalProps) 
             <InputNumber min={64} max={4096} step={64} precision={0} style={{ width: "100%" }} />
           </Form.Item>
         </div>
+
+        <Form.List name="volumes">
+          {(fields, { add, remove }) => (
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 8,
+                  fontWeight: 600,
+                }}
+              >
+                <HardDriveIcon /> Host volumes (virtio-fs)
+              </div>
+              <p style={{ margin: "4px 0 0", color: "var(--text-5)", fontSize: 11.5 }}>
+                Mount host directories into the guest. fastvmd enforces the configured
+                <code> volumes.allowed_host_prefixes</code> allowlist.
+              </p>
+              <Flex vertical gap={0} style={{ marginTop: 8 }}>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Flex key={key} gap={8} align="flex-end" wrap>
+                    <Form.Item
+                      {...restField}
+                      name={[name, "host_path"]}
+                      label="Host path"
+                      rules={[
+                        { required: true, message: "Host path is required." },
+                        {
+                          pattern: /^\//,
+                          message: "Host path must be absolute (start with /).",
+                        },
+                      ]}
+                      style={{ flex: "1 1 170px", marginBottom: 8 }}
+                    >
+                      <Input placeholder="/host/dir" autoComplete="off" />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, "guest_path"]}
+                      label="Guest mount"
+                      rules={[
+                        { required: true, message: "Guest mount is required." },
+                        {
+                          pattern: /^\/[^\s:,]*$/,
+                          message: "Absolute path, no spaces, ':' or ','.",
+                        },
+                      ]}
+                      style={{ flex: "1 1 150px", marginBottom: 8 }}
+                    >
+                      <Input placeholder="/mnt/data" autoComplete="off" />
+                    </Form.Item>
+                    <Form.Item
+                      {...restField}
+                      name={[name, "read_only"]}
+                      label="Read-only"
+                      valuePropName="checked"
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Switch aria-label="Read-only volume" />
+                    </Form.Item>
+                    <Form.Item style={{ marginBottom: 8 }}>
+                      <Button
+                        type="text"
+                        danger
+                        aria-label="Remove volume"
+                        disabled={isCreating}
+                        onClick={() => remove(name)}
+                      >
+                        <TrashIcon />
+                      </Button>
+                    </Form.Item>
+                  </Flex>
+                ))}
+              </Flex>
+              <Button
+                type="dashed"
+                block
+                icon={<PlusIcon />}
+                style={{ marginBottom: 16 }}
+                disabled={isCreating}
+                onClick={() => add({ read_only: false })}
+              >
+                Add volume
+              </Button>
+            </div>
+          )}
+        </Form.List>
 
         <Form.Item
           name="no_auto_sleep"

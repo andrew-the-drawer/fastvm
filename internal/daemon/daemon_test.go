@@ -157,7 +157,7 @@ func (v *fakeVM) Snapshot(_ context.Context, dir string) (vmm.Snapshot, error) {
 	v.mu.Lock()
 	v.snapDir = dir
 	v.mu.Unlock()
-	return vmm.Snapshot{Dir: dir, MemPath: dir + "/mem", StatePath: dir + "/vmstate"}, nil
+	return vmm.Snapshot{Dir: dir}, nil
 }
 func (v *fakeVM) Stop(context.Context) error {
 	v.mu.Lock()

@@ -20,12 +20,12 @@ import (
 	"fastvm/internal/network"
 	"fastvm/internal/store"
 	"fastvm/internal/types"
-	"fastvm/internal/vmm/firecracker"
+	"fastvm/internal/vmm/cloudhypervisor"
 	"fastvm/internal/volume"
 )
 
 // TestDaemonNetworkWakeRealVM proves the queue-live wake path with a real TAP,
-// bridge, guest NIC, and Firecracker VM.
+// bridge, guest NIC, and Cloud Hypervisor VM.
 //
 // The current user has no CAP_NET_ADMIN in the initial namespaces, so the test
 // re-executes itself under `unshare -Urn -r` (user+net namespace) where TAP,
@@ -112,7 +112,7 @@ func runNetworkWakeChild(t *testing.T) {
 		t.Fatalf("network manager (must run under unshare -Urn): %v", err)
 	}
 	t.Cleanup(func() { _ = netMgr.Close() })
-	drv, err := firecracker.NewDriver(firecracker.Options{Binary: envOr("FASTVM_FIRECRACKER", "firecracker"), RunDir: filepath.Join(tmp, "run"), BootTimeout: 60 * time.Second})
+	drv, err := cloudhypervisor.NewDriver(cloudhypervisor.Options{Binary: envOr("FASTVM_CLOUD_HYPERVISOR", ""), Virtiofsd: envOr("FASTVM_VIRTIOFSD", ""), RunDir: filepath.Join(tmp, "run"), BootTimeout: 60 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

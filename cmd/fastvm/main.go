@@ -257,6 +257,26 @@ func cmdImageList(args []string) error {
 	return tw.Flush()
 }
 
+// parseVolumes parses repeatable --volume host:guest[:ro] flags.
+func parseVolumes(raw []string) ([]types.Volume, error) {
+	out := make([]types.Volume, 0, len(raw))
+	for _, spec := range raw {
+		readOnly := false
+		if strings.HasSuffix(spec, ":ro") {
+			readOnly = true
+			spec = strings.TrimSuffix(spec, ":ro")
+		} else {
+			spec = strings.TrimSuffix(spec, ":rw")
+		}
+		host, guest, ok := strings.Cut(spec, ":")
+		if !ok || host == "" || guest == "" {
+			return nil, fmt.Errorf("volume %q: expected host:guest[:ro]", spec)
+		}
+		out = append(out, types.Volume{HostPath: host, GuestPath: guest, ReadOnly: readOnly})
+	}
+	return out, nil
+}
+
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	image := fs.String("image", "", "base disk tag or digest")
@@ -268,6 +288,8 @@ func cmdRun(args []string) error {
 	fs.Var(&publishes, "publish", "publish a port host:guest[/tcp|udp] (repeatable)")
 	var envs multiFlag
 	fs.Var(&envs, "env", "workload env K=V (repeatable)")
+	var volumeFlags multiFlag
+	fs.Var(&volumeFlags, "volume", "mount a host directory: host:guest[:ro] (repeatable)")
 	// Stop flag parsing at "--" so the workload command can have flags.
 	flagArgs, cmdArgs := splitDashDash(args)
 	if err := fs.Parse(flagArgs); err != nil {
@@ -284,9 +306,13 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	volumes, err := parseVolumes(volumeFlags)
+	if err != nil {
+		return err
+	}
 	body := map[string]any{
 		"name": *name, "image": *image, "vcpus": *vcpus, "memory_mb": *mem,
-		"ports": ports, "cmd": cmdArgs, "env": env, "no_auto_sleep": *noAutoSleep,
+		"ports": ports, "volumes": volumes, "cmd": cmdArgs, "env": env, "no_auto_sleep": *noAutoSleep,
 	}
 	var sb types.Sandbox
 	if err := do(http.MethodPost, "/v1/sandboxes", body, &sb); err != nil {

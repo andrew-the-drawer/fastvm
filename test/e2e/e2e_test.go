@@ -1,11 +1,11 @@
-// Package e2e contains gated end-to-end tests against real Firecracker VMs.
+// Package e2e contains gated end-to-end tests against real Cloud Hypervisor VMs.
 //
 // Run with:
 //
 //	make assets
 //	FASTVM_E2E=1 go test -count=1 -timeout 10m ./test/e2e/...
 //
-// The tests skip cleanly when /dev/kvm, firecracker, or the downloaded assets
+// The tests skip cleanly when /dev/kvm, Cloud Hypervisor, or the downloaded assets
 // are missing.
 package e2e
 
@@ -28,7 +28,7 @@ import (
 	"fastvm/internal/network"
 	"fastvm/internal/store"
 	"fastvm/internal/types"
-	"fastvm/internal/vmm/firecracker"
+	"fastvm/internal/vmm/cloudhypervisor"
 	"fastvm/internal/volume"
 )
 
@@ -70,8 +70,10 @@ func requireE2E(t *testing.T) (kernel, rootfs string) {
 	if st, err := os.Stat(rootfs); err != nil || !st.IsDir() {
 		t.Skipf("rootfs missing (%s): run make assets", rootfs)
 	}
-	if _, err := exec.LookPath("firecracker"); err != nil {
-		t.Skip("firecracker binary not found")
+	if _, err := exec.LookPath("cloud-hypervisor"); err != nil {
+		if _, err := exec.LookPath("cloud-hypervisor-static"); err != nil {
+			t.Skip("cloud-hypervisor binary not found")
+		}
 	}
 	return kernel, rootfs
 }
@@ -151,8 +153,9 @@ func newStack(t *testing.T, kernel string) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	drv, err := firecracker.NewDriver(firecracker.Options{
-		Binary:      envOr("FASTVM_FIRECRACKER", "firecracker"),
+	drv, err := cloudhypervisor.NewDriver(cloudhypervisor.Options{
+		Binary:      envOr("FASTVM_CLOUD_HYPERVISOR", ""),
+		Virtiofsd:   envOr("FASTVM_VIRTIOFSD", ""),
 		RunDir:      filepath.Join(tmp, "run"),
 		BootTimeout: 60 * time.Second,
 	})

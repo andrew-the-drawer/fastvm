@@ -2,10 +2,12 @@
 
 Micro-VMs that nap.
 
-A single-host sandbox runtime built on Firecracker/KVM: sandboxes boot in
-~100 ms, put themselves to sleep when idle, page their memory to disk, and wake
+A single-host sandbox runtime built on **Cloud Hypervisor**/KVM: sandboxes
+cold-boot in **~0.6 s** (measured to guest-agent-ready on the reference host),
+put themselves to sleep when idle, page their memory to disk, and wake
 themselves when a packet arrives — with the frame already queued in the guest's
-own virtio-net path.
+own virtio-net path. Host directories can be shared into a sandbox over
+virtio-fs.
 
 ![fastvm console in light and dark themes](docs/console-themes.png)
 
@@ -16,9 +18,12 @@ wake it, and delete it.
 
 ## Features
 
-- **~100 ms boots.** One Firecracker microVM per sandbox, KVM-backed.
+- **~0.6 s cold boots.** One [Cloud Hypervisor](https://www.cloudhypervisor.org/)
+  microVM per sandbox, KVM-backed (boot to guest-agent-ready, measured on the
+  reference host; see the [migration notes](docs/CLOUD_HYPERVISOR_MIGRATION.md)
+  for why the old Firecracker "~100 ms" number no longer applies).
 - **Self-managed lifecycle.** Idle detection → pause (vCPUs halted, RAM
-  resident) → dormant (RAM offloaded to a memory file) → destroy.
+  resident) → dormant (RAM offloaded to a file-backed snapshot) → destroy.
 - **Wake on network.** A packet arriving for a sleeping sandbox wakes it, with
   the frame already queued in the guest's RX path. `curl` a dormant VM and it
   answers.
@@ -28,6 +33,10 @@ wake it, and delete it.
 - **Dockerfile → bootable disk.** `fastvm image build` turns a Dockerfile into a
   content-addressed ext4 base disk; runtime volumes are reflink CoW clones
   (sparse-copy fallback).
+- **Host-directory volumes over virtio-fs.** Allowlisted host paths can be
+  mounted at guest paths read-only or read-write (`--volume host:guest[:ro]`,
+  `volumes` in the API); virtiofsd serves them and they survive pause/dormant
+  wake. Host mounts are denied unless enabled in `volumes.allowed_host_prefixes`.
 - **exec over virtio-vsock**, detached workloads, and an interactive PTY shell
   with resize and exit-code propagation.
 - **Published ports** with nftables DNAT, including `curl 127.0.0.1:<port>`.
@@ -45,7 +54,7 @@ wake it, and delete it.
 Fastest path — boots a sandbox, lets it auto-sleep, then wakes it with `curl`:
 
 ```sh
-make build && make assets   # binaries + pinned kernel
+make build && make assets   # binaries + pinned Cloud Hypervisor kernel
 sudo make demo              # one-command wake-on-network demo
 ```
 
@@ -74,11 +83,12 @@ Setup, OIDC, the exec terminal and API details live in [console/README.md](conso
 
 ## Requirements
 
-Linux x86_64 with KVM, [Firecracker](https://firecracker-microvm.github.io/)
-v1.10+ (v1.17 tested), and Go 1.24+ to build. The daemon needs
-root/`CAP_NET_ADMIN` for TAP/veth/nftables; `CAP_BPF` enables the eBPF switch,
-otherwise it falls back to the Linux bridge. Docker/BuildKit is optional and
-only used to build base disks and template images.
+Linux x86_64 with KVM, [Cloud Hypervisor](https://www.cloudhypervisor.org/)
+v54+ (`cloud-hypervisor`, or the static build `cloud-hypervisor-static`),
+virtiofsd ≥ 1.10 (only for host-directory volumes), and Go 1.24+ to build. The
+daemon needs root/`CAP_NET_ADMIN` for TAP/veth/nftables; `CAP_BPF` enables the
+eBPF switch, otherwise it falls back to the Linux bridge. Docker/BuildKit is
+optional and only used to build base disks and template images.
 
 ## Documentation
 
@@ -87,7 +97,8 @@ only used to build base disks and template images.
 | [Getting started](docs/GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Design](docs/DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, roadmap |
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |
-| [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, dev proxy, production notes |
+| [Cloud Hypervisor migration](docs/CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor, kernel/tooling, virtio-fs volumes |
+| [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 
 ## Development
@@ -96,7 +107,7 @@ only used to build base disks and template images.
 make build     # bin/fastvm, bin/fastvmd, bin/fastvm-agent
 make test      # unit tests (no KVM or root needed)
 make test-race # unit tests under the race detector
-make e2e       # real Firecracker boot/pause/dormant/wake e2e
+make e2e       # real Cloud Hypervisor boot/pause/dormant/wake e2e
 ```
 
 Gated e2e, network, and Docker-build suites skip cleanly when their

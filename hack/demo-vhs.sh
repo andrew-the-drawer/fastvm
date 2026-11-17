@@ -9,8 +9,9 @@
 # Usage: hack/demo-vhs.sh [tape]   (default: docs/demo.tape in the repository root)
 #        KEEP=1 hack/demo-vhs.sh   (keep the daemon and /tmp state for debugging)
 #
-# Requires: vhs (Chrome + ffmpeg + ttyd), firecracker, docker, KVM, and root or
-# unprivileged user namespaces (fastvmd needs CAP_NET_ADMIN for TAP/nftables).
+# Requires: vhs (Chrome + ffmpeg + ttyd), a Cloud Hypervisor binary
+# (cloud-hypervisor or cloud-hypervisor-static), virtiofsd, docker, KVM, and root
+# or unprivileged user namespaces (fastvmd needs CAP_NET_ADMIN for TAP/nftables).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,7 +29,20 @@ for bin in bin/fastvm bin/fastvmd bin/fastvm-agent; do
   [[ -x "$bin" ]] || fail "$bin missing; run 'make build'"
 done
 [[ -f test/e2e/assets/vmlinux.bin ]] || fail "test/e2e/assets/vmlinux.bin missing; run 'make assets'"
-command -v firecracker >/dev/null || fail "firecracker not found; install Firecracker v1.17+"
+if command -v cloud-hypervisor >/dev/null 2>&1; then
+  CH_BIN="$(command -v cloud-hypervisor)"
+elif command -v cloud-hypervisor-static >/dev/null 2>&1; then
+  CH_BIN="$(command -v cloud-hypervisor-static)"
+else
+  fail "cloud-hypervisor not found; install Cloud Hypervisor v54+ (cloud-hypervisor or cloud-hypervisor-static)"
+fi
+if command -v virtiofsd >/dev/null 2>&1; then
+  VIRTIOFSD_BIN="$(command -v virtiofsd)"
+elif [[ -x /usr/lib/virtiofsd ]]; then
+  VIRTIOFSD_BIN=/usr/lib/virtiofsd
+else
+  fail "virtiofsd not found; install virtiofsd >= 1.10 (distro package usually ships /usr/lib/virtiofsd)"
+fi
 command -v docker >/dev/null || fail "docker not found; it is required to build the demo image"
 docker info >/dev/null 2>&1 || fail "docker is not usable; start the docker daemon and check user $(id -un) can access it"
 [[ -f "$TAPE" ]] || fail "tape not found: $TAPE (the default is docs/demo.tape in the repo root)"
@@ -90,6 +104,8 @@ trap cleanup EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM
 
 echo "== starting fastvmd ($MODE; state: $WORK) =="
+echo "   cloud hypervisor: $CH_BIN"
+echo "   virtiofsd: $VIRTIOFSD_BIN"
 DAEMON_CMD=("$ROOT/bin/fastvmd" -config "$DAEMON_CONFIG" -data-dir "$DATA_DIR" -socket "$SOCKET" -log-level info)
 if [[ "$(id -u)" -eq 0 ]]; then
   "${DAEMON_CMD[@]}" > "$LOG" 2>&1 &

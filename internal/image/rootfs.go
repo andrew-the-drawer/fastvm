@@ -39,6 +39,33 @@ mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mkdir -p /dev/pts /dev/shm /run /tmp
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+
+# Host-directory volumes shared over virtio-fs: one cmdline entry per volume,
+# fastvm.volume.<n>=<tag>:<guest_path>:<ro|rw>.
+i=0
+while :; do
+	spec=""
+	for tok in $(cat /proc/cmdline); do
+		case "$tok" in
+		"fastvm.volume.$i="*) spec=${tok#fastvm.volume.$i=} ;;
+		esac
+	done
+	[ -n "$spec" ] || break
+	tag=${spec%%:*}
+	rest=${spec#*:}
+	mnt=${rest%%:*}
+	mode=${rest##*:}
+	mkdir -p "$mnt" 2>/dev/null || true
+	if [ "$mode" = "ro" ]; then
+		mount -t virtiofs -o ro "$tag" "$mnt" 2>/dev/null ||
+			echo "fastvm: warning: could not mount $tag (ro) at $mnt"
+	else
+		mount -t virtiofs "$tag" "$mnt" 2>/dev/null ||
+			echo "fastvm: warning: could not mount $tag at $mnt"
+	fi
+	i=$((i + 1))
+done
+
 if [ -x /usr/local/bin/fastvm-agent ]; then
 	exec /usr/local/bin/fastvm-agent
 fi

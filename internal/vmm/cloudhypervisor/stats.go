@@ -1,4 +1,4 @@
-package firecracker
+package cloudhypervisor
 
 import (
 	"errors"
@@ -53,7 +53,7 @@ func vmmCPUTicks(pid int) (uint64, error) {
 	dir := fmt.Sprintf("/proc/%d/task", pid)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0, fmt.Errorf("firecracker: stats: read %s: %w", dir, err)
+		return 0, fmt.Errorf("cloudhypervisor: stats: read %s: %w", dir, err)
 	}
 	var total uint64
 	for _, e := range entries {
@@ -62,11 +62,11 @@ func vmmCPUTicks(pid int) (uint64, error) {
 			if errors.Is(err, os.ErrNotExist) {
 				continue // thread exited between ReadDir and ReadFile
 			}
-			return 0, fmt.Errorf("firecracker: stats: read task stat: %w", err)
+			return 0, fmt.Errorf("cloudhypervisor: stats: read task stat: %w", err)
 		}
 		utime, stime, err := parseProcStat(string(data))
 		if err != nil {
-			return 0, fmt.Errorf("firecracker: stats: %w", err)
+			return 0, fmt.Errorf("cloudhypervisor: stats: %w", err)
 		}
 		total += utime + stime
 	}
@@ -100,7 +100,7 @@ func parseProcStat(s string) (utime, stime uint64, err error) {
 func vmmRSSBytes(pid int) (uint64, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
-		return 0, fmt.Errorf("firecracker: stats: read /proc/%d/status: %w", pid, err)
+		return 0, fmt.Errorf("cloudhypervisor: stats: read /proc/%d/status: %w", pid, err)
 	}
 	return parseProcStatusRSS(string(data))
 }
@@ -116,22 +116,22 @@ func parseProcStatusRSS(s string) (uint64, error) {
 		}
 		fields := strings.Fields(value)
 		if len(fields) == 0 || !strings.EqualFold(fields[len(fields)-1], "kB") {
-			return 0, fmt.Errorf("firecracker: stats: malformed VmRSS line %q", line)
+			return 0, fmt.Errorf("cloudhypervisor: stats: malformed VmRSS line %q", line)
 		}
 		kb, err := strconv.ParseUint(fields[0], 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("firecracker: stats: parse VmRSS: %w", err)
+			return 0, fmt.Errorf("cloudhypervisor: stats: parse VmRSS: %w", err)
 		}
 		return kb * 1024, nil
 	}
-	return 0, errors.New("firecracker: stats: /proc status missing VmRSS")
+	return 0, errors.New("cloudhypervisor: stats: /proc status missing VmRSS")
 }
 
 // vmmBlockIO reads read_bytes/write_bytes from /proc/<pid>/io.
 func vmmBlockIO(pid int) (read, write uint64, err error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/io", pid))
 	if err != nil {
-		return 0, 0, fmt.Errorf("firecracker: stats: read /proc/%d/io: %w", pid, err)
+		return 0, 0, fmt.Errorf("cloudhypervisor: stats: read /proc/%d/io: %w", pid, err)
 	}
 	var gotRead, gotWrite bool
 	for _, line := range strings.Split(string(data), "\n") {
@@ -151,7 +151,7 @@ func vmmBlockIO(pid int) (read, write uint64, err error) {
 		}
 	}
 	if !gotRead || !gotWrite {
-		return 0, 0, fmt.Errorf("firecracker: stats: /proc/%d/io missing read_bytes/write_bytes", pid)
+		return 0, 0, fmt.Errorf("cloudhypervisor: stats: /proc/%d/io missing read_bytes/write_bytes", pid)
 	}
 	return read, write, nil
 }

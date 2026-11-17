@@ -12,9 +12,29 @@ browser GUI, …) are in [DESIGN.md §4](DESIGN.md#4-non-goals-through-v01).
   Isolation is enforced by the eBPF switch (or bridge port isolation in fallback
   mode) plus static neighbor/DNAT rules; full netns hardening is a later
   milestone.
-- **`uffd`/`swap` memory offload.** Only `file` (the default, Firecracker
-  File-backend mmap restore) and `never` are implemented; the other modes are
-  config-validated but rejected by the daemon.
+- **`uffd`/`swap` memory offload.** Only `file` (the default: a Cloud
+  Hypervisor snapshot restored paused with its memory image file-backed and
+  demand-paged) and `never` are implemented; the other modes are config-validated
+  but rejected by the daemon.
+- **No VMM jailer.** Cloud Hypervisor ships a seccomp filter (enabled by default)
+  and optional Landlock, but there is no Firecracker-style jailer. Run the daemon
+  and VMM with minimal privileges; a hardened jail/namespace is part of the M7
+  hardening milestone.
+- **Host-directory volumes are static and allowlisted.** `--volume
+  host:guest[:ro]` / `volumes` in the API are attached at sandbox create time;
+  there is no hotplug or dynamic attach/detach. Host paths must be absolute and
+  under `volumes.allowed_host_prefixes` (empty or absent denies all host mounts),
+  `virtiofsd` should be sandboxed, and mounted host directories must be treated
+  as trusted input. virtio-fs DAX is not supported by Cloud Hypervisor, so shares
+  use a single queue.
+- **Dormant snapshots are Cloud-Hypervisor-version specific.** The snapshot
+  format (`config.json`, `memory-ranges`, `state.json`) restores only with the
+  same CH version, CPU features, and disk/vsock paths. Pin Cloud Hypervisor and
+  virtiofsd per host; there is no cross-host snapshot portability.
+- **Boot/wake timing is being re-baselined.** With Cloud Hypervisor the measured
+  cold boot to agent-ready is ~0.6 s (the old Firecracker claim was ~100 ms);
+  pause/wake numbers in the design doc predate the migration and will be
+  re-measured.
 - **`dm-thin` CoW volumes.** Reflink and sparse-copy fallbacks are implemented;
   `dm-thin` returns `ErrDMThinUnsupported`.
 - **Deep sleep with the VMM exited.** The VMM and its device queue stay alive so
@@ -34,9 +54,10 @@ browser GUI, …) are in [DESIGN.md §4](DESIGN.md#4-non-goals-through-v01).
   TAP, emitting a ringbuf wake event if the sandbox is asleep). There is no
   Linux bridge in this mode. `switch.mode: bridge` is the automatic fallback
   when eBPF cannot be loaded (no `CAP_BPF`/BTF/verifier support).
-- **Serial console after restore.** Snapshot restore does not reattach the guest
-  serial console (a Firecracker limitation); vsock reconnects on wake and
-  exec/filesystem state is intact.
+- **Serial console.** Cloud Hypervisor runs with `--serial file=<serial.log>`,
+  so the guest kernel console (`ttyS0`) and `FASTVM_BOOT_OK` are captured in
+  `sandboxes/<id>/serial.log`; it is the first place to look when a boot fails.
+  vsock reconnects on wake and exec/filesystem state is intact after restore.
 - **Daemon restart.** A graceful stop snapshots Running/Idle/Paused sandboxes to
   Dormant (best-effort, up to 2 min each) and the next start adopts them
   (network re-registered, memory file preserved, wake lazily). A crash or
@@ -46,5 +67,6 @@ browser GUI, …) are in [DESIGN.md §4](DESIGN.md#4-non-goals-through-v01).
 - **Image builds are not a container runtime.** fastvm uses BuildKit/Docker to
   build base disks and converts the resulting OCI image; there is no
   from-scratch Dockerfile engine, and sandboxes are microVMs, not containers.
-- **Not for hostile multi-tenancy yet.** Per-sandbox netns (M2) and jailer
-  hardening (M7) land later; mutually hostile tenants are a v1.0 concern.
+- **Not for hostile multi-tenancy yet.** Per-sandbox netns (M2) and VMM
+  hardening (CH seccomp/Landlock, sandboxed virtiofsd, no jailer yet; M7) land
+  later; mutually hostile tenants are a v1.0 concern.

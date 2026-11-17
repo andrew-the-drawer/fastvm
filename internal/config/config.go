@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,6 +51,11 @@ type Config struct {
 	Wake      Wake      `yaml:"wake"`
 	Volume    Volume    `yaml:"volume"`
 	Defaults  Defaults  `yaml:"defaults"`
+
+	// VMM selects the VMM executable(s). Empty values use the built-in defaults.
+	VMM VMMConfig `yaml:"vmm"`
+	// Volumes configures host-directory virtio-fs mounts.
+	Volumes VolumeAllow `yaml:"volumes"`
 }
 
 // Lifecycle configures state transitions.
@@ -95,6 +101,18 @@ type Volume struct {
 	COW              string `yaml:"cow"` // reflink|dm-thin|copy
 	SizeGB           int    `yaml:"size_gb"`
 	DiscardOnDestroy bool   `yaml:"discard_on_destroy"`
+}
+
+// VMMConfig selects the VMM backend executables.
+type VMMConfig struct {
+	Binary    string `yaml:"binary"`    // cloud-hypervisor executable
+	Virtiofsd string `yaml:"virtiofsd"` // virtiofsd executable for volumes
+}
+
+// VolumeAllow restricts which host directories may be mounted as volumes.
+// An empty AllowedHostPrefixes denies all host-directory volumes.
+type VolumeAllow struct {
+	AllowedHostPrefixes []string `yaml:"allowed_host_prefixes"`
 }
 
 // Network configures guest-visible networking. Empty DNS/Search means the
@@ -152,6 +170,7 @@ func Default() *Config {
 			CoalesceWindow:    Duration(100 * time.Millisecond),
 		},
 		Volume:   Volume{COW: "reflink", SizeGB: 8, DiscardOnDestroy: true},
+		VMM:      VMMConfig{Binary: "cloud-hypervisor", Virtiofsd: "virtiofsd"},
 		Switch:   Switch{Mode: "ebpf", IsolateSandboxes: true, WakeNotify: true},
 		Defaults: Defaults{VCPUs: 2, MemoryMB: 512},
 	}
@@ -211,6 +230,12 @@ func (c *Config) Validate() error {
 	case "", "ebpf", "bridge":
 	default:
 		errs = append(errs, "switch.mode must be ebpf|bridge")
+	}
+	for _, prefix := range c.Volumes.AllowedHostPrefixes {
+		if !filepath.IsAbs(prefix) || filepath.Clean(prefix) != prefix {
+			errs = append(errs, "volumes.allowed_host_prefixes entries must be absolute clean paths")
+			break
+		}
 	}
 	for _, dns := range c.Network.DNS {
 		if ip := net.ParseIP(strings.TrimSpace(dns)); ip == nil || ip.To4() == nil || ip.IsLoopback() {

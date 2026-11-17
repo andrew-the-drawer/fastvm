@@ -25,9 +25,9 @@ const (
 	dialRetryInterval = 50 * time.Millisecond
 )
 
-// DialFirecracker connects to the guest agent through a Firecracker vsock
+// DialFirecracker connects to the guest agent through a virtio-vsock
 // host-side Unix socket. guestCID is accepted for API symmetry with the
-// Firecracker vsock contract; the UDS belongs to one VM so the host protocol
+// Firecracker/Cloud Hypervisor vsock contract; the UDS belongs to one VM so the host protocol
 // ("CONNECT <port>") does not need it.
 //
 // The dial retries until the guest agent starts listening, bounded by ctx and

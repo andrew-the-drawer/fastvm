@@ -54,6 +54,7 @@ type Sandbox struct {
 	State       State         `json:"state"`
 	NoAutoSleep bool          `json:"no_auto_sleep"`
 	Ports       []PortMapping `json:"ports,omitempty"`
+	Volumes     []Volume      `json:"volumes,omitempty"`
 
 	// Network allocation.
 	NetnsPath string `json:"netns_path,omitempty"`
@@ -77,6 +78,13 @@ type Sandbox struct {
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Volume is a host directory shared into the sandbox over virtio-fs.
+type Volume struct {
+	HostPath  string `json:"host_path"`
+	GuestPath string `json:"guest_path"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
 }
 
 // Event is an append-only lifecycle/audit record.

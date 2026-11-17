@@ -224,6 +224,9 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	if vcpus < 1 || mem < 64 {
 		return types.Sandbox{}, fmt.Errorf("%w: vcpus>=1 and memory_mb>=64 required", manager.ErrInvalid)
 	}
+	if err := validateVolumes(d.cfg, opts.Volumes); err != nil {
+		return types.Sandbox{}, err
+	}
 	base, err := d.img.Get(ctx, opts.Image)
 	if err != nil {
 		return types.Sandbox{}, fmt.Errorf("%w: image %q: %v", manager.ErrNotFound, opts.Image, err)
@@ -238,7 +241,7 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	}
 	sb := types.Sandbox{
 		ID: id, Name: opts.Name, BaseDisk: base.Digest, VCPUs: vcpus, MemoryMB: mem,
-		State: types.StateCreating, NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports,
+		State: types.StateCreating, NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports, Volumes: opts.Volumes,
 		VMMAPISock:  filepath.Join(dir, "vmm-api.sock"),
 		VsockUDPath: filepath.Join(dir, "vsock.sock"),
 		SerialPath:  filepath.Join(dir, "serial.log"),
@@ -340,6 +343,7 @@ func (d *Daemon) bootLocked(ctx context.Context, rt *runtime) error {
 		VsockUDPath: sb.VsockUDPath,
 		APISocket:   sb.VMMAPISock,
 		SerialPath:  sb.SerialPath,
+		Volumes:     sb.Volumes,
 		Cmdline:     bootCmdline(sb, entropySeed(), d.guestBootFiles(sb)),
 	})
 	if err != nil {
@@ -825,6 +829,7 @@ func (d *Daemon) offloadLocked(ctx context.Context, rt *runtime, sb *types.Sandb
 		SandboxID: sb.ID, Snapshot: snap,
 		TAPName: sb.TAPName, VsockUDPath: sb.VsockUDPath,
 		APISocket: sb.VMMAPISock, SerialPath: sb.SerialPath, Resume: false,
+		Volumes: sb.Volumes,
 	})
 	if err != nil {
 		return fmt.Errorf("restore dormant: %w", err)
@@ -848,15 +853,11 @@ func (d *Daemon) wakeLocked(ctx context.Context, rt *runtime, sb *types.Sandbox)
 	case types.StateDormant:
 		if rt.vm == nil {
 			// Daemon restart: restore the paused memory file now.
-			snap := vmm.Snapshot{
-				Dir:       sb.SnapshotDir,
-				MemPath:   filepath.Join(sb.SnapshotDir, "mem"),
-				StatePath: filepath.Join(sb.SnapshotDir, "vmstate"),
-			}
 			vm, err := d.vmmD.Restore(ctx, vmm.RestoreConfig{
-				SandboxID: sb.ID, Snapshot: snap,
+				SandboxID: sb.ID, Snapshot: vmm.Snapshot{Dir: sb.SnapshotDir},
 				TAPName: sb.TAPName, VsockUDPath: sb.VsockUDPath,
 				APISocket: sb.VMMAPISock, SerialPath: sb.SerialPath, Resume: true,
+				Volumes: sb.Volumes,
 			})
 			if err != nil {
 				return fmt.Errorf("restore: %w", err)
@@ -1418,6 +1419,13 @@ func entropySeed() string {
 // kernel random pool (otherwise getrandom can block in a fresh microVM).
 func bootCmdline(sb *types.Sandbox, seed string, guest guestBootFiles) string {
 	cmd := "console=ttyS0 root=/dev/vda rw init=/init"
+	for i, vol := range sb.Volumes {
+		mode := "rw"
+		if vol.ReadOnly {
+			mode = "ro"
+		}
+		cmd += fmt.Sprintf(" fastvm.volume.%d=fastvm%d:%s:%s", i, i, vol.GuestPath, mode)
+	}
 	if sb.TAPName != "" && sb.IP != "" {
 		cmd += " fastvm.ip=" + sb.IP + "/30"
 		if sb.Gateway != "" {
@@ -1437,6 +1445,49 @@ func bootCmdline(sb *types.Sandbox, seed string, guest guestBootFiles) string {
 		cmd += " " + cmdlineGuestHostsKey + "=" + b64
 	}
 	return cmd
+}
+
+// validateVolumes enforces the host-path allowlist and the kernel-cmdline-safe
+// guest path format (the guest init script parses "<tag>:<path>:<mode>" tokens).
+func validateVolumes(cfg *config.Config, vols []types.Volume) error {
+	seen := make(map[string]bool, len(vols))
+	for _, vol := range vols {
+		host := vol.HostPath
+		if host == "" {
+			return fmt.Errorf("%w: volume host_path is required", manager.ErrInvalid)
+		}
+		if !filepath.IsAbs(host) || filepath.Clean(host) != host {
+			return fmt.Errorf("%w: volume host_path %q must be an absolute clean path", manager.ErrInvalid, host)
+		}
+		allowed := false
+		for _, prefix := range cfg.Volumes.AllowedHostPrefixes {
+			if host == prefix || strings.HasPrefix(host, prefix+string(filepath.Separator)) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("%w: volume host_path %q is not under volumes.allowed_host_prefixes", manager.ErrInvalid, host)
+		}
+		guest := vol.GuestPath
+		if guest == "" {
+			return fmt.Errorf("%w: volume guest_path is required", manager.ErrInvalid)
+		}
+		if !filepath.IsAbs(guest) || filepath.Clean(guest) != guest || guest == "/" {
+			return fmt.Errorf("%w: volume guest_path %q must be an absolute clean path below /", manager.ErrInvalid, guest)
+		}
+		if strings.ContainsAny(guest, ":, \t\n\\") {
+			return fmt.Errorf("%w: volume guest_path %q contains unsupported characters", manager.ErrInvalid, guest)
+		}
+		if seen[guest] {
+			return fmt.Errorf("%w: duplicate volume guest_path %q", manager.ErrInvalid, guest)
+		}
+		seen[guest] = true
+		if st, err := os.Stat(host); err != nil || !st.IsDir() {
+			return fmt.Errorf("%w: volume host_path %q is not a directory", manager.ErrInvalid, host)
+		}
+	}
+	return nil
 }
 
 // guestCID derives a stable, unique-per-host CID from the sandbox IP.

@@ -21,13 +21,14 @@ type BootConfig struct {
 	APISocket   string // host-side unix socket for the VMM API
 	SerialPath  string // serial console log file
 	Cmdline     string // kernel cmdline
+	// Volumes are host directories shared into the guest over virtio-fs.
+	Volumes []types.Volume
 }
 
-// Snapshot is a paused memory+device-state checkpoint on disk.
+// Snapshot is a paused VM checkpoint on disk. The driver treats Dir as opaque
+// and reads whatever files its own snapshot format uses.
 type Snapshot struct {
-	Dir       string
-	MemPath   string
-	StatePath string
+	Dir string
 }
 
 // RestoreConfig describes loading a paused snapshot into a fresh VMM process.
@@ -39,6 +40,9 @@ type RestoreConfig struct {
 	APISocket   string
 	SerialPath  string
 	Resume      bool // false: restore paused (dormant); true: restore and run
+	// Volumes must be the same set the snapshot was taken with, so the driver
+	// can restart the virtio-fs backends before restoring the VM.
+	Volumes []types.Volume
 }
 
 // Stats aliases the shared VM counter type.

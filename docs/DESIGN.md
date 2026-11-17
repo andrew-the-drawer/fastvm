@@ -2,12 +2,17 @@
 
 | Field | Value |
 |---|---|
-| **Status** | Draft v0.5 |
-| **Date** | 2026-11-07 |
+| **Status** | Draft v0.6 |
+| **Date** | 2026-11-17 |
 | **Owner** | lead |
-| **Stack** | Go (control plane) + Firecracker (VMM) |
+| **Stack** | Go (control plane) + Cloud Hypervisor (VMM) |
 | **Repo** | `/home/anh/Code/fastvm` |
 
+> **Rev 6** — the VMM backend moved from Firecracker to **Cloud Hypervisor**
+> (virtio-pci devices, virtio-fs host-directory volumes, CH snapshots restored
+> paused). Boot/wake timing is being re-baselined; see
+> [CLOUD_HYPERVISOR_MIGRATION.md](CLOUD_HYPERVISOR_MIGRATION.md).
+>
 > **Rev 5** — image pipeline (Dockerfile → base disk via BuildKit), CoW runtime
 > volumes, and an eBPF L2 switch that forwards frames, isolates sandboxes,
 > counts traffic, and emits the wake event. Wake path and offload model from
@@ -19,7 +24,10 @@
 ## TL;DR
 
 `fastvm` is a single-host, Go-based micro-VM sandbox runtime. It boots Linux
-sandboxes in ~100 ms and **manages their lifecycle without an operator**:
+sandboxes in **~0.6 s** (measured cold boot to guest-agent-ready with Cloud
+Hypervisor on the reference host; the pre-migration Firecracker build claimed
+~100 ms — see [CLOUD_HYPERVISOR_MIGRATION.md](CLOUD_HYPERVISOR_MIGRATION.md))
+and **manages their lifecycle without an operator**:
 sandboxes detect idleness, pause themselves, hand their guest memory to a
 file-backed image when they stay asleep, and **wake themselves on inbound
 network traffic**.
@@ -38,10 +46,10 @@ Two sleep levels, both with a **live device queue**:
 | Level | What happens | Host memory | Wake latency |
 |-------|--------------|-------------|--------------|
 | **Paused** | vCPUs halted; TAP + virtio-net device queue stay attached; frames queue in the host→guest path until the guest resumes | full guest RAM | ~50–150 ms |
-| **Dormant** | same paused VM, but guest RAM is handed to a Firecracker memory file and restored file-backed (mmap, demand paging); the VMM process and device queue stay alive, so an incoming frame is still enqueued (only touched pages fault in) | reclaimable page cache + VMM overhead | ~50–300 ms |
+| **Dormant** | same paused VM, but guest memory and device state are snapshotted by Cloud Hypervisor and restored file-backed (`--restore`, mmap/demand paging); the VMM process and device queue stay alive, so an incoming frame is still enqueued (only touched pages fault in) | reclaimable page cache + VMM overhead | ~50–300 ms (to be re-baselined) |
 
-Restore is not the expensive part: Firecracker loads a paused memory file in
-tens of milliseconds, so a sandbox can go dormant quickly and waking it is a
+Restore is not the expensive part: Cloud Hypervisor restores a paused snapshot
+in tens of milliseconds, so a sandbox can go dormant quickly and waking it is a
 vCPU resume plus demand paging. That is what makes the pause/wake cycle feel
 instant.
 
@@ -65,8 +73,8 @@ sandbox's virtio-net queue.
 
 Running untrusted or resource-heavy workloads inside containers shares a kernel
 and a blast radius. Full VMs are the right isolation boundary, but the existing
-tooling exposes primitives, not a product: you get a VMM binary (Firecracker,
-Cloud Hypervisor), not sandbox lifecycle. Operators end up:
+tooling exposes primitives, not a product: you get a VMM binary (Cloud
+Hypervisor, QEMU, Firecracker), not sandbox lifecycle. Operators end up:
 
 - babysitting idle sandboxes that burn RAM and CPU, or killing them and losing
   in-memory state;
@@ -100,8 +108,9 @@ queue.
 - **Networking:** each sandbox gets a virtual L2 port on a per-host eBPF switch;
   by default it can reach the host/uplink but not other sandboxes.
 - **Trust model v0.1:** single-operator host, but *guest code is untrusted with
-  respect to the host*: KVM isolation, minimal device model, no host mounts.
-  Hardened multi-tenant SaaS is post-v0.1.
+  respect to the host*: KVM isolation, minimal device model, no host mounts by
+  default. Host-directory volumes (`--volume`, virtio-fs) are opt-in and
+  allowlisted per host path prefix. Hardened multi-tenant SaaS is post-v0.1.
 
 If any of these is wrong (e.g. multi-tenant SaaS, Windows guests, GPU
 workloads), say so now — it changes the networking and threat-model milestones.
@@ -112,15 +121,17 @@ workloads), say so now — it changes the networking and threat-model milestones
 
 - **G1 — Real isolation.** One microVM per sandbox, KVM, minimal device model,
   no shared kernel with the host or other sandboxes.
-- **G2 — Fast start.** Cold boot to workload-ready: **p50 ≤ 150 ms,
-  p95 ≤ 300 ms** on the reference host (Firecracker-class).
+- **G2 — Fast start.** Cold boot to workload-ready: **re-baselined after the
+  Cloud Hypervisor migration** (measured ~0.6 s cold boot to agent-ready on the
+  reference host; the old Firecracker p50 ≤ 150 ms / p95 ≤ 300 ms targets are
+  superseded).
 - **G3 — Self-managing lifecycle.** No manual pause/stop required. A state
   machine driven by a debounced idle predicate (network, exec/API, block I/O,
   CPU), workload events, TTLs, and memory pressure takes every sandbox through
   Running → Idle → Paused → Dormant → woken, and eventually → Stopped.
 - **G4 — Memory offload without losing the queue.** A dormant sandbox releases
-  **≥ 95%** of its guest RAM pages to a file-backed memory image (Firecracker
-  paused-memory-file restore; reclaimable page cache) while its VMM process,
+  **≥ 95%** of its guest RAM pages to a file-backed memory image (Cloud
+  Hypervisor snapshot restored paused; reclaimable page cache) while its VMM process,
   TAP, and virtio-net device queue remain alive. Only touched pages and VMM
   overhead stay resident.
 - **G5 — Wake on network, in the guest's own stack.** An inbound packet for a
@@ -166,9 +177,10 @@ Explicitly out of scope; re-evaluate only after the definition of done (§9).
 - **Multi-host scheduling / clustering.** Single host first. The API is shaped
   so a scheduler can be added later, but no distributed state.
 - **Live migration** of a running VM.
-- **Cross-host snapshot portability.** Memory images are local wake aids: no
-  OCI packaging, no restore on a different host/CPU/VMM version.
-- **Incremental/diff snapshots** (Firecracker marks them developer-preview).
+- **Cross-host snapshot portability.** Memory images are local wake aids and
+  Cloud-Hypervisor-version specific: no OCI packaging, no restart on a different
+  host/CPU/VMM version.
+- **Incremental/diff snapshots** (fastvm snapshots are always full VMM dumps).
 - **GPU / PCI passthrough**, nested virtualization, confidential computing.
 - **Windows or macOS guests**, arm64 guests (x86_64 first).
 - **IPv6 in the network data path** — IPv4 veth/DNAT/neighbor handling in v0.1.
@@ -189,8 +201,9 @@ Explicitly out of scope; re-evaluate only after the definition of done (§9).
 - **Disk snapshots/rollback, volume resize, persistent user volumes.** Runtime
   volumes are ephemeral CoW clones; memory offload covers sleep state.
 - **Multi-arch image builds** (x86_64 guests first).
-- **Hostile multi-tenant operation.** Per-sandbox netns is core (M2) and jailer
-  hardening lands in M7, but mutually hostile tenants are a v1.0 concern.
+- **Hostile multi-tenant operation.** Per-sandbox netns is core (M2) and VMM
+  hardening (Cloud Hypervisor seccomp/Landlock, sandboxed virtiofsd; CH has no
+  jailer) lands in M7, but mutually hostile tenants are a v1.0 concern.
 
 Practical v0.1 gaps that follow from these non-goals, plus behavior worth
 knowing when operating fastvm, are collected in [LIMITATIONS.md](LIMITATIONS.md).
@@ -210,7 +223,7 @@ This section is the product. Everything else exists to make it true.
 | `Running` | Workload executing; activity tracked | running | resident | VMM, TAP, switch port, CoW volume |
 | `Idle` | No activity; pause countdown running | running | resident | VMM, TAP, switch port, CoW volume |
 | `Paused` | vCPUs halted; device queue live; frames buffered in the host→guest path | halted | resident | VMM, TAP, switch port, CoW volume, wake dispatcher |
-| `Dormant` | Paused + guest RAM in a file-backed memory image (Firecracker paused-memory-file restore); VMM and queue alive | halted | file-backed page cache (demand-paged) | VMM, TAP, switch port, CoW volume, wake dispatcher |
+| `Dormant` | Paused + Cloud Hypervisor snapshot restored paused (guest memory file-backed, device state in the snapshot dir); VMM and queue alive | halted | file-backed page cache (demand-paged) | VMM, TAP, switch port, CoW volume, wake dispatcher |
 | `Resuming` | Waking a paused/dormant sandbox; vCPUs restart and drain the queue | starting | paging in | VMM, TAP, switch port, CoW volume, wake dispatcher |
 | `Stopping` | Graceful teardown | – | – | – |
 | `Stopped` | Destroyed; disk and memory image removed | – | – | – |
@@ -230,7 +243,7 @@ This section is the product. Everything else exists to make it true.
 | `Idle → Running` | qualifying activity, or CPU ≥ `idle.cpu_wake_pct` for `idle.exit_hold` | resets the debounce |
 | `Idle → Paused` | idle for `pause_after` (default 2 m) **and** sleep barrier clear | manual `fastvm pause` skips the wait; switch port marked asleep (wake notifications armed) before pausing |
 | `Paused → Running` | wake trigger (inbound frame, API) | resume vCPUs; the queued frames are consumed by the guest |
-| `Paused → Dormant` | `offload_after` idle (default 10 m) **or** host memory pressure **or** manual `--offload` | snapshot a paused memory file + reload the VM from it (File backend, mmap), still paused; restore is tens of ms and not user-facing |
+| `Paused → Dormant` | `offload_after` idle (default 10 m) **or** host memory pressure **or** manual `--offload` | Cloud Hypervisor snapshot the paused VM, stop the VMM, and restore it paused from the snapshot (`--restore`); restore is tens of ms and not user-facing |
 | `Dormant → Running` | wake trigger (inbound frame, API) | resume vCPUs; pages fault in from the memory file as the guest drains the queue |
 | `* → Stopping → Stopped` | TTL (`destroy_after`, default 24 h idle), API delete, host shutdown | paused/dormant sandboxes are destroyed too |
 | `Failed → Stopping` | GC/API | — |
@@ -253,8 +266,8 @@ useful work). All four must be quiet for the whole window.
 | Pure ACKs and TCP keepalives | eBPF switch (TCP flags/len) | No — an idle-but-open connection must not pin a sandbox awake |
 | exec session attached, API operation, explicit `fastvm touch` | lifecycle API / guest agent | **Yes** |
 | Workload start/exit events | guest agent | **Yes** (exit sets `workload_finished` and may move straight to `Idle`) |
-| Block-device I/O | Firecracker block stats / host I/O counters | **Yes** when ≥ `idle.block_io_bytes` within the window |
-| Guest CPU utilization | Firecracker per-vCPU accounting | **Vetoes** idleness while above `idle.cpu_threshold_pct`; does not reset the window by itself |
+| Block-device I/O | VMM block stats / host I/O counters | **Yes** when ≥ `idle.block_io_bytes` within the window |
+| Guest CPU utilization | VMM per-vCPU / host CPU accounting | **Vetoes** idleness while above `idle.cpu_threshold_pct`; does not reset the window by itself |
 
 **Not activity:** ARP/NDP, broadcast/multicast noise, pure ACKs and keepalives,
 switch control events, guest stdout/stderr writes (a server that logs must still
@@ -344,7 +357,7 @@ stack:
 ```
 host network → fvup → fvuplink (switch uplink ingress)
              → eBPF switch (static MAC→port redirect)
-             → tap-<id> (sandbox switch port/egress) → Firecracker virtio-net
+             → tap-<id> (sandbox switch port/egress) → Cloud Hypervisor virtio-net (PCI)
              → device queue (host→guest) → guest eth0
 ```
 
@@ -374,13 +387,14 @@ writes guest packets into the VM.
   the frame is already in the queue by the time vCPUs resume, or is delivered
   as the paused device backend drains the TAP. In `switch.mode=bridge`, a
   passive AF_PACKET tap supplies the same event.
-- **Resume.** `Resuming` resumes vCPUs (`PATCH /vm {"state":"Resumed"}`); the
-  guest's network stack consumes the queued frames in order and replies
-  normally. The first delivered byte is the wake-latency measurement. For
-  `Dormant`, the VM was already reloaded from the paused memory file at offload
-  time (File backend, mmap), so the restore itself is tens of milliseconds and
-  does not sit on the wake path: resume is the vCPU restart, and page faults
-  are served by the kernel from the memory file as the guest drains the queue.
+- **Resume.** `Resuming` resumes vCPUs (`PUT /api/v1/vm.resume`); the guest's
+  network stack consumes the queued frames in order and replies normally. The
+  first delivered byte is the wake-latency measurement. For `Dormant`, the VM
+  was already restored from the Cloud Hypervisor snapshot at offload time
+  (`--restore`, starts paused; mmap/demand paging), so the restore itself is
+  tens of milliseconds and does not sit on the wake path: resume is the vCPU
+  restart, and page faults are served by the kernel from the memory image as
+  the guest drains the queue.
 - **No replay, by design.** fastvm holds no copy of the frame, never injects
   one, and never reorders. The frame the guest sees is the frame the host sent.
 - **Ordering and duplicates.** The device queue is FIFO; frames are not
@@ -411,11 +425,11 @@ writes guest packets into the VM.
   RST), so clients see real guest behavior. The dispatcher records a
   `wake_no_response` event if a wake produces no outbound frame within a
   timeout, making dead services visible.
-- **Failure of the device path.** If Firecracker's device thread turns out not
-  to drain the TAP while vCPUs are paused (M4 spike), frames simply wait in the
-  TAP/kernel queue and are drained after resume; if that queue overflows, the
-  same bounded-drop/retransmit behavior applies. The switch's wake notification
-  is independent of device-thread behavior.
+- **Failure of the device path.** If Cloud Hypervisor's device/queue handling
+  turns out not to drain the TAP while vCPUs are paused (M4 spike), frames
+  simply wait in the TAP/kernel queue and are drained after resume; if that
+  queue overflows, the same bounded-drop/retransmit behavior applies. The
+  switch's wake notification is independent of device-thread behavior.
 - **If a dormant VMM dies.** The memory file is intact and reloadable in tens
   of ms, but frames that arrived while no device existed were dropped, and
   queued frames in the dead VMM are gone. The reconciler reloads the dormant VM
@@ -448,13 +462,13 @@ state transitions.
                       │    │           │                 ▲             │
                       │    ▼           ▼                 │ wake event  │
                       │ builder     VMM driver       eBPF L2 switch    │
-                      │ (BuildKit) (Firecracker)    (tc eBPF + maps)   │
+                      │ (BuildKit) (Cloud Hypervisor) (tc eBPF + maps)  │
                       │    │           │                               │
-                      │    │     snapshot + File-backend restore       │
+                      │    │     snapshot + restore (CH)               │
                       └────┼───────────┼─────────────────▲────────┬────┘
                            │           │ API socket       │ frames │ files
                            ▼           ▼                  │        │
-                    base disks   firecracker         veth fv-<id>   │
+                    base disks   cloud-hypervisor   veth fv-<id>   │
                     (ext4, RO)   + tap-<id>          (switch port)  │
                            │           │                  │        │
                            │           ▼                  │        │
@@ -462,7 +476,7 @@ state transitions.
                            │                  guest eth0 ─▶ agent + workload
                            │                                      │
                            ▼                                      ▼
-                    volumes/ (CoW clones)              images/ memory/ state/
+                    volumes/ (CoW clones)          images/ snapshots/ state/
 ```
 
 Single-host, single daemon, one actor per sandbox. No database server, no
@@ -477,14 +491,14 @@ actual VMM process on startup.
 | **API (`internal/api`)** | REST-ish JSON over Unix socket; `sandboxes`, `events` (SSE/stream), `version`, `host`. Optional bearer token for TCP listeners. |
 | **Lifecycle actors (`internal/lifecycle`)** | One goroutine per sandbox; owns state machine, timers (idle/pause/offload/TTL), sleep barrier, wake serialization/coalescing, scan rate limiting, event emission. |
 | **Reconciler** | On boot and every 5 s: adopt live VMMs, reload dormant VMs whose VMM died, complete interrupted offload/wake transitions, detect orphan processes/TAPs, enforce memory-pressure policy. |
-| **VMM driver (`internal/vmm`)** | Interface: `Create, Start, Pause, Resume, Snapshot, Restore, Stop, Stats`. Firecracker driver talks HTTP/JSON over a Unix socket (no cgo); QEMU driver used only as a dev/CI fallback (TCG) for functional tests. |
+| **VMM driver (`internal/vmm`)** | Interface: `Create, Start, Pause, Resume, Snapshot, Restore, Stop, Stats`. The Cloud Hypervisor driver launches one `cloud-hypervisor` process per sandbox (all devices at launch) and drives pause/resume/snapshot/shutdown through CH's REST API over a per-sandbox unix socket (no cgo). Host-directory volumes add one `virtiofsd` process and one `--fs` device per share. |
 | **Wake dispatcher (`internal/wake`)** | Consumes wake notifications from the eBPF switch (AF_PACKET tap fallback in bridge mode); coalesces bursts, rate-limits scans, marks `wake_no_response`. It never holds, injects, or reorders frames. |
 | **eBPF L2 switch (`internal/switch`)** | Per-host tc `clsact` eBPF programs + BPF maps: static MAC→port table, `bpf_redirect` between sandbox TAPs and the uplink, per-port MAC anti-spoofing, default sandbox isolation, per-port byte/packet counters, and a ringbuf wake-event channel. Loaded via `cilium/ebpf`; bridge-mode fallback for dev/CI. |
 | **Builder (`internal/build`)** | Dockerfile → OCI image via BuildKit → unpacked rootfs → ext4 base disk (guest agent + init injected); content-addressed cache; `fastvm image build`/`images`. |
-| **Volumes (`internal/volume`)** | Base-disk store (read-only, content-addressed) and per-sandbox CoW runtime volumes (reflink default, dm-thin fallback); clone, attach, discard, GC, refcounts. |
+| **Volumes (`internal/volume`)** | Base-disk store (read-only, content-addressed) and per-sandbox CoW runtime volumes (reflink default, dm-thin fallback); clone, attach, discard, GC, refcounts. Host-directory volumes are validated against `volumes.allowed_host_prefixes` and attached at create time (virtio-fs, static). |
 | **Network (`internal/network`)** | Per-sandbox TAP as switch port + shared `fvup`/`fvuplink` uplink veth, nftables NAT/DNAT for published ports, static neighbor entries, MAC/IP allocation. |
-| **Snapshot & restore (`internal/snapshot`)** | Paused memory-file snapshots, File-backend paused reload (mmap, kernel demand paging), restore-time measurement, checksums/fsync, GC, disk budget. A userfaultfd page-in mode is an optional later optimisation. |
-| **Guest agent (`guest/`)** | Static Go binary in the rootfs over vsock (Firecracker): Ready handshake, exec, signals, workload lifecycle events, stdout/stderr pump (logs, not activity), per-boot `/etc/hostname`, `/etc/hosts`, `/etc/resolv.conf` writer, `touch`, `workload_busy` advisory, clock/NTP note after resume, reconnect after vsock reset. |
+| **Snapshot & restore (`internal/snapshot`)** | Cloud Hypervisor snapshots (config + memory + device state) of the paused VM, restore with `--restore` (starts paused; file-backed memory, kernel demand paging), virtiofsd restart before restore, restore-time measurement, fsync/GC, disk budget. CH's `ondemand`/`copyonwrite` (uffd) restore modes are a later optimisation. |
+| **Guest agent (`guest/`)** | Static Go binary in the rootfs over vsock (Cloud Hypervisor virtio-vsock; the guest/host `CONNECT <port>` protocol is unchanged): Ready handshake, exec, signals, workload lifecycle events, stdout/stderr pump (logs, not activity), per-boot `/etc/hostname`, `/etc/hosts`, `/etc/resolv.conf` writer, `touch`, `workload_busy` advisory, clock/NTP note after resume, reconnect after vsock reset. |
 | **Image manager (`internal/image`)** | Resolve/pull OCI images, unpack rootfs for the base-disk builder, and resolve base-disk digests for volumes. Kernel is pinned per host config, not taken from the image. |
 | **Store (`internal/store`)** | bbolt: sandbox records, desired state, activity timestamps, memory-image metadata, events index. |
 | **CLI (`cmd/fastvm`)** | Thin client: `run, ls, exec, shell, logs, pause, offload, resume, rm, events, host`. |
@@ -497,30 +511,32 @@ inject guest agent + init config → `mke2fs -d` → content-addressed base disk
 
 **Cold start** → base-disk digest resolve → CoW runtime volume clone
 (reflink/dm-thin, milliseconds) → switch port (static MAC + /30 address) →
-netns/veth/TAP + NAT/DNAT + static neighbor → spawn Firecracker with the
-volume, TAP fd, and vsock → configure + boot → agent Ready → `Running`.
+netns/veth/TAP + NAT/DNAT + static neighbor → spawn Cloud Hypervisor with the
+kernel/cmdline, CoW volume, TAP/mac, vsock and any `--fs` host volumes (all
+devices launched in one process) → boot → agent Ready → `Running`.
 
 **Idle → pause** → activity timer expires → `Idle` → `pause_after` → sleep
 barrier: mark the switch port asleep (wake notifications armed), ensure no
-in-flight frame delivery or exec session, then `PATCH /vm
-{"state":"Paused"}` → state `Paused`. The TAP and device queue stay attached;
+in-flight frame delivery or exec session, then `PUT /api/v1/vm.pause` → state
+`Paused`. The TAP and device queue stay attached;
 frames now accumulate in the host→guest path and the guest cannot consume them
 until resume.
 
-**Pause → dormant** → (only from idle/paused) `PUT /snapshot/create` writing
-`vmstate` and the sparse `mem` file → fsync memory image and volume → stop the
-original VMM → start a fresh Firecracker from that snapshot with the **File**
-memory backend (`mmap`) and `resume_vm=false` → reattach TAP
-(`network_overrides`), vsock, and static neighbor → state `Dormant`. Restore is
-tens of ms (no guest-RAM copy); guest pages are now reclaimable file-backed page
-cache. The device queue state comes from the snapshot, so it stays live for
-inbound frames.
+**Pause → dormant** → (only from idle/paused) `PUT /api/v1/vm.snapshot` with
+`{"destination_url":"file://<sandbox>/memory"}` → fsync snapshot and volume →
+stop the original VMM → start a fresh Cloud Hypervisor with `--restore
+source_url=file://<sandbox>/memory` (**starts paused**) → devices are recreated
+from the snapshot config (disk, TAP/net, vsock, serial, `--fs`; any `virtiofsd`
+processes are restarted at the same socket paths first) → state `Dormant`.
+Restore is tens of ms (no guest-RAM copy); guest pages are now reclaimable
+file-backed page cache. The device queue state comes from the snapshot, so it
+stays live for inbound frames.
 
 **Wake** → the switch sees the first frame for a sleeping port, emits a wake
 event, and forwards the frame into the port's path → the dispatcher coalesces
-the burst → `Resuming`: for `Paused`, `PATCH /vm {"state":"Resumed"}`; for
-`Dormant`, the VM is already restored, so `PATCH /vm {"state":"Resumed"}` and
-pages fault in from the memory file as the guest and device touch them → the
+the burst → `Resuming`: for `Paused`, `PUT /api/v1/vm.resume`; for `Dormant`,
+the VM is already restored paused from the CH snapshot, so `PUT
+/api/v1/vm.resume` and pages fault in as the guest and device touch them → the
 guest drains the device queue → first frame reaches `eth0`; record first-byte
 latency; state `Running`.
 
@@ -529,59 +545,65 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 
 ### 6.4 Memory offload and restore
 
-- **Default mode (`file`).** The sandbox is paused, a full memory + device-state
-  snapshot is written to `sandboxes/<id>/memory/` (sparse `mem` file,
-  `vmstate`, metadata with checksums), and the original VMM is stopped. A fresh
-  Firecracker process restores that paused memory file with the **File** memory
-  backend (`mmap`, kernel demand paging) and **does not resume vCPUs**. Restore
-  is a handful of syscalls plus device-state load — tens of milliseconds, with
-  no copy of guest RAM. Guest RAM is now reclaimable file-backed page cache
-  rather than anonymous memory, while the VMM process, TAP, and device queue
-  stay alive, so an inbound frame still lands in the guest's RX queue.
-- **Why reload, and why it is cheap.** Firecracker cannot switch a running VM's
-  memory backend, so offload is snapshot + paused reload. That cost is paid
-  only when the sandbox is already asleep (`offload_after`), never on the wake
-  path; because the reload is mmap-based, "going dormant" is a state change
+- **Default mode (`file`).** The sandbox is paused, Cloud Hypervisor writes a
+  full memory + device-state snapshot (`config.json`, `memory-ranges`,
+  `state.json`) into `sandboxes/<id>/memory/`, and the original VMM is stopped.
+  A fresh Cloud Hypervisor process restores that snapshot with `--restore
+  source_url=file://<dir>`; it **starts paused** and **does not resume vCPUs**.
+  Devices are recreated from `config.json` (disk, TAP/net, vsock, serial, and
+  one `--fs` per host volume; `virtiofsd` is restarted at the same socket paths
+  beforehand). Restore is a handful of syscalls plus device-state load — tens of
+  milliseconds, with no copy of guest RAM. Guest memory is now reclaimable
+  file-backed page cache rather than anonymous memory, while the VMM process,
+  TAP, and device queue stay alive, so an inbound frame still lands in the
+  guest's RX queue.
+- **Why restore-from-snapshot, and why it is cheap.** Cloud Hypervisor restores
+  a new process from a snapshot (it does not swap a running VM's memory
+  backend), so offload is snapshot + restore-paused. That cost is paid only
+  when the sandbox is already asleep (`offload_after`), never on the wake path;
+  because the restore is mmap/demand-paged, "going dormant" is a state change
   measured in tens of milliseconds, not a heavy hibernation.
 - **Resident-page accounting is honest.** A dormant sandbox must not pin guest
   RAM as anonymous memory: guest pages are file-backed and reclaimable, only
   pages touched after the reload become COW anonymous, and the VMM process +
   TAP are fixed overhead. Report anon and file-backed memory separately
   (`smaps_rollup`), not a single `ps` number.
-- **Memory image format.** Sparse, uncompressed, one file ≈ guest RAM size;
-  zero pages are holes. Compression is a disk/CPU tradeoff to benchmark later,
-  never on the wake path. Disk budget + GC enforce a host cap.
+- **Memory image format.** CH's snapshot directory (`config.json`,
+  `memory-ranges`, `state.json`, plus the memory mapping files) is treated as an
+  opaque, version-specific blob; zero pages are sparse. Compression/`copyonwrite`
+  restore is a disk/CPU tradeoff to benchmark later, never on the wake path.
+  Disk budget + GC enforce a host cap.
 - **Wake cost.** Restore is already done; first byte comes after the vCPU
   resume and the page faults the guest's network stack and workload touch, plus
   whatever was already faulted for the queued frame. Cold images (page cache
   evicted) lengthen the first-byte tail: benchmark cold vs warm, target p95 in
   §8.
-- **Optional uffd mode.** A userfaultfd memory backend with a Go page-in
-  handler is a later optimisation for finer control (prefetch, page-in
-  observability, compressed images). It is not the default: kernel demand
-  paging is simpler, has no userspace fault handler on the wake path, and
-  restore is already fast. UFFD also adds a failure mode (a dead handler blocks
-  the VM) that the default path avoids.
+- **Optional ondemand/uffd restore.** CH also supports `ondemand` and
+  `copyonwrite` memory restore modes (userfaultfd-based). fastvm uses the
+  default file-backed restore: kernel demand paging is simpler, has no userspace
+  fault handler on the wake path, and restore is already fast. UFFD also adds a
+  failure mode (a dead handler blocks the VM) that the default path avoids.
 - **Swap alternative.** `madvise(MADV_PAGEOUT)` on a live paused VMM avoids the
-  snapshot+reload entirely, but depends on host swap being configured and gives
+  snapshot/restore entirely, but depends on host swap being configured and gives
   less control over what is resident; available per-sandbox as
-  `offload_mode: swap`.
-- **Snapshot compatibility.** Same VMM binary/version, same CPU features, same
-  disk/vsock paths; vsock resets on restore (agent reconnects). Metadata records
-  the compatibility descriptor; an incompatible image is not loaded (sandbox
-  fails with a clear event; no silent cold boot with lost state).
-- **Failure modes.** Interrupted offload (crash between snapshot and reload) is
-  reconciled on startup: finish the reload if the file is complete, otherwise
-  restore the previous paused VMM from the still-running process. A VMM that
-  dies while dormant is reloaded from the memory file (tens of ms); frames lost
-  while no device existed are counted and clients retransmit.
-- **Guest clock/RNG.** After resume, prefer Firecracker's `clock_realtime` on
-  x86_64; otherwise the agent synchronizes the clock and logs the jump. Guest
-  kernels with VMGenID support reseed the RNG on restore.
+  `offload_mode: swap` (not implemented yet).
+- **Snapshot compatibility.** CH snapshots are version-specific: the same CH
+  version, CPU features, and disk/vsock paths are required. vsock resets on
+  restore (the agent reconnects); `virtiofsd` must be restarted at the same
+  socket paths before `--restore`. An incompatible snapshot is not loaded
+  (sandbox fails with a clear event; no silent cold boot with lost state).
+- **Failure modes.** Interrupted offload (crash between snapshot and restore) is
+  reconciled on startup: finish the restore if the snapshot is complete,
+  otherwise restore the previous paused VMM from the still-running process. A
+  VMM that dies while dormant is restarted from the snapshot (tens of ms);
+  frames lost while no device existed are counted and clients retransmit.
+- **Guest clock/RNG.** After resume the agent synchronizes the guest clock and
+  logs the jump (the guest sees wall-clock time advance across the pause).
+  Guest kernels with VMGenID support reseed the RNG on restore.
 - **Secrets.** Memory images contain guest secrets: `0600`, daemon-owned
   directories, disk budget; at-rest encryption is an explicit v0.2 item.
 
-### 6.5 Storage: base disks and CoW runtime volumes
+### 6.5 Storage: base disks, CoW runtime volumes, host shares
 
 - **Base disks** are built from Dockerfiles (or ingested OCI images) as raw
   ext4 images: BuildKit produces the OCI image, fastvm unpacks the rootfs,
@@ -598,12 +620,22 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
   `dm-thin` snapshots as the fallback for hosts without reflink, full `copy` as
   the last resort. Clones share blocks until written; per-sandbox writes are
   isolated.
-- **Firecracker compatibility.** Firecracker takes raw block devices, so base
-  disks and volumes are raw files/devices at stable per-sandbox paths (required
-  by snapshot restore). Reflink clones are files; dm-thin snapshots expose a dm
-  device.
+- **VMM compatibility.** Cloud Hypervisor takes raw block devices (`--disk
+  path=<volume>,image_type=raw`), so base disks and volumes are raw
+  files/devices at stable per-sandbox paths (required by snapshot restore).
+  Reflink clones are files; dm-thin snapshots expose a dm device.
+- **Host-directory volumes (virtio-fs).** A sandbox can carry
+  `volumes: [{host_path, guest_path, read_only}]` (CLI `--volume
+  host:guest[:ro]`, API `volumes`). Each `host_path` must be absolute and under
+  `volumes.allowed_host_prefixes` (empty/absent = deny all), and is served by a
+  per-share `virtiofsd` process at `<sandbox>/fs-<n>.sock`; CH gets a `--fs
+  tag=fastvm<n>,socket=...` device and `--memory ...,shared=on`. The daemon
+  appends `fastvm.volume.<n>=fastvm<n>:<guest_path>:<ro|rw>` to the kernel
+  cmdline and the guest `/init` mounts it before the agent starts. Shares are
+  static at create time (no hotplug), survive pause/dormant (virtiofsd is
+  restarted before restore), and DAX is not supported by CH.
 - **Sleep and destroy.** The volume persists across pause and dormant unchanged
-  (memory-file restore assumes the same disk path and content), so the guest's
+  (snapshot restore assumes the same disk path and content), so the guest's
   filesystem needs no disk snapshot. At offload the volume is fsynced together
   with the memory image, so a host crash cannot leave the image referencing
   writes that were lost. Destroy discards the volume; base disks are
@@ -618,7 +650,7 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 
 ### 6.6 Networking model: eBPF L2 switch
 
-- **Topology:** `tap-<id>` (Firecracker's virtio-net) is itself a **port on the
+- **Topology:** `tap-<id>` (Cloud Hypervisor's virtio-net, PCI transport) is itself a **port on the
   per-host eBPF L2 switch**. The switch's uplink is a shared `fvup` ↔
   `fvuplink` veth pair; the host stack, gateway IPs, static neighbors and NAT
   live on `fvup`. There is no Linux bridge and no per-sandbox network namespace
@@ -650,12 +682,13 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
   minimum kernel, e.g. 5.15+); `cilium/ebpf` verifier/load errors surface at
   startup with a clear fallback hint.
 - **Guest identity files:** like Docker, each sandbox gets a per-boot
-  `/etc/resolv.conf`, `/etc/hosts`, and `/etc/hostname`; because Firecracker has
-  no bind-mount path, the daemon mirrors the host resolver (filtering loopback
+  `/etc/resolv.conf`, `/etc/hosts`, and `/etc/hostname`; these are not
+  bind-mounted, so the daemon mirrors the host resolver (filtering loopback
   nameservers, with a public fallback) and passes the generated files and
   hostname over the kernel command line. The guest agent writes them and sets
   the kernel hostname before starting the workload. `network.dns` /
-  `network.search` override the mirrored values.
+  `network.search` override the mirrored values. (Opt-in host-directory volumes
+  are mounted separately over virtio-fs; see §6.5.)
 - **Isolation:** switch anti-spoofing and default sandbox↔sandbox drop prevent
   cross-sandbox L2 spoofing; per-sandbox netns and hostile multi-tenant
   hardening remain later milestones.
@@ -664,10 +697,10 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 
 | # | Decision | Chosen for v0.1 | Alternatives | Rationale | Revisit |
 |---|----------|-----------------|--------------|-----------|---------|
-| 1 | VMM | **Firecracker** | Cloud Hypervisor, QEMU | Fastest boot, small device surface, pause/snapshot support, already installed | If restore fidelity or virtiofs is needed |
-| 2 | Go integration | Thin REST/JSON client over VMM Unix socket | `firecracker-go-sdk` | Zero cgo; full control of snapshot/restore APIs; SDK coverage to be verified in M2 | M2 — use SDK if it covers snapshot+restore cleanly |
-| 3 | Sleeping model | **Pause keeps the VMM, TAP, and device queue live; offload hands guest RAM to a file-backed image via Firecracker restore** | VMM exit + frame parking; pause only | The inbound frame lands in the guest's own queue, so wake needs no replay and TCP state survives | Deep sleep post-v0.1 if density demands it |
-| 4 | Memory offload | **Paused memory-file snapshot + File-backed reload (mmap, kernel demand paging)** | uffd page-in; `swap`/`MADV_PAGEOUT` | Restore is tens of ms with no userspace fault handler on the wake path; keeps the queue live while releasing RAM | UFFD if prefetch/compression is needed; swap if host swap is guaranteed |
+| 1 | VMM | **Cloud Hypervisor** | Firecracker, QEMU | virtio-fs host shares, virtio-pci devices, pause/snapshot/restore; no jailer and a heavier device model than Firecracker (see [migration notes](CLOUD_HYPERVISOR_MIGRATION.md)) | Re-baseline boot/wake; return to Firecracker only if a minimal device surface outweighs virtio-fs |
+| 2 | Go integration | **Thin REST/JSON client over Cloud Hypervisor's unix socket** | firecracker-go-sdk; Cloud Hypervisor client libraries | Zero cgo; full control of CH's pause/snapshot/restore API | Use an official client library if it covers snapshot+restore/get cleanly |
+| 3 | Sleeping model | **Pause keeps the VMM, TAP, and device queue live; offload snapshots the paused VM and restores it paused via Cloud Hypervisor `--restore`** | VMM exit + frame parking; pause only | The inbound frame lands in the guest's own queue, so wake needs no replay and TCP state survives | Deep sleep post-v0.1 if density demands it |
+| 4 | Memory offload | **Cloud Hypervisor snapshot of the paused VM + `--restore` paused (file-backed memory, mmap/demand paging)** | uffd/ondemand page-in; `swap`/`MADV_PAGEOUT` | Restore is tens of ms with no userspace fault handler on the wake path; keeps the queue live while releasing RAM | UFFD if prefetch/compression is needed; swap if host swap is guaranteed |
 | 5 | Wake trigger | **eBPF switch ringbuf event when a frame targets a sleeping port** | AF_PACKET tap (bridge fallback); poll VMM rx counters; nftables queue | Event fires at the L2 forwarding decision; the frame is still redirected into the guest path; no userspace frame handling | Program complexity/verifier; bridge fallback retained |
 | 6 | Activity | Agent events + switch frames + API + CPU secondary | CPU-only | Correct for idle servers and finished jobs | — |
 | 7 | Idle policy | Fixed defaults, per-sandbox overrides | Adaptive | Predictable; tune after soak data | M6 |
@@ -676,9 +709,10 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 | 10 | Kernel | Pinned host-local kernel image | Kernel from image | OCI images do not contain kernels; reproducibility | — |
 | 11 | Network topology | Per-sandbox netns + veth pair + eBPF switch ports; nftables DNAT ingress | Linux bridge; shared host TAP/bridge; macvtap | Clean wake boundary, per-port isolation, counters and wake events in-kernel | IPv6; eBPF offload; netns hardening |
 | 12 | Wake buffering | **Device queue + TAP kernel queue** | User-space parking queue; proxy | Bounded, in-path, no replay logic | RX queue sizing after benchmarks |
-| 13 | Runtime volumes | **CoW clone: reflink by default, dm-thin fallback** | Guest overlayfs; full copy; qcow2 | Millisecond clones, block sharing, raw devices Firecracker accepts | dm-thin default if reflink filesystems are not guaranteed |
+| 13 | Runtime volumes | **CoW clone: reflink by default, dm-thin fallback** | Guest overlayfs; full copy; qcow2 | Millisecond clones, block sharing, raw devices Cloud Hypervisor accepts | dm-thin default if reflink filesystems are not guaranteed |
 | 14 | Image build | **Dockerfile → BuildKit → OCI → ext4 base disk** | Custom Dockerfile builder; docker buildx; container2vm-style converters | BuildKit gives correct Dockerfile semantics and caching; fastvm owns rootfs→disk conversion | BuildKit dependency/version policy; remote builders later |
 | 15 | L2 switch | **tc `clsact` eBPF programs + BPF maps** | Linux bridge; OVS; XDP-native-only | Redirect, isolation, counters, and wake events with one data-plane program; generic tc works on veths | XDP-native optimization; per-host program reload/rollback |
+| 16 | Host-directory volumes | **virtio-fs: CH `--fs` + one virtiofsd per share; absolute host paths allowlisted via `volumes.allowed_host_prefixes`; static at create** | 9p; copy-in/copy-out; overlayfs | Native read-write host shares without copying; persists across pause/dormant; no DAX/hotplug (single queue) | Hotplug/DAX if CH support improves; virtiofsd sandboxing in M7 |
 
 ### 6.8 Repository layout (created in M0)
 
@@ -687,19 +721,19 @@ cmd/fastvm/           CLI
 cmd/fastvmd/          daemon
 internal/api/         HTTP/JSON + events
 internal/lifecycle/   state machine, actors, policies, reconciler
-internal/vmm/         driver interface, firecracker/, qemu/
+internal/vmm/         driver interface, cloudhypervisor/ driver
 internal/build/       Dockerfile -> OCI (BuildKit) -> base ext4 disk
-internal/volume/      base-disk store, CoW clones, GC/refcounts
+internal/volume/      base-disk store, CoW clones, host-share attach, GC/refcounts
 internal/switch/      eBPF L2 switch loader + programs (bpf2go)
 internal/network/     netns, veth, tap, in-netns bridge, nat/dnat, neighbors
 internal/wake/        wake dispatcher (switch events / AF_PACKET fallback)
-internal/snapshot/    memory image, File-backend restore, gc
+internal/snapshot/    Cloud Hypervisor snapshot dir, restore, gc
 internal/image/       OCI pull/unpack, agent injection
 internal/store/       bbolt
 internal/agentproto/  vsock wire protocol
 guest/                fastvm-agent
 docs/adr/             decision records
-test/integration/     KVM-gated end-to-end tests
+test/e2e/             KVM-gated end-to-end tests (Cloud Hypervisor)
 test/perf/            benchmarks with recorded baselines
 Makefile, go.mod, README.md, docs/DESIGN.md, CONTRIBUTING.md
 ```
@@ -728,7 +762,7 @@ content-addressed and stable for identical inputs; base disk boots in a QEMU/TCG
 
 ### M2 — Cold boot + CoW runtime volumes (M/L)
 Base-disk store; CoW volume clone (reflink default, dm-thin fallback, copy as
-last resort); Firecracker driver with a raw volume; per-sandbox netns + veth +
+last resort); Cloud Hypervisor driver with a raw volume; per-sandbox netns + veth +
 TAP + Linux bridge + nftables NAT/DNAT + static neighbor (baseline networking
 before the eBPF switch); guest agent Ready handshake; `fastvm run`, `exec`,
 `logs`, `rm`; boot benchmark harness; KVM-gated integration job in CI (QEMU/TCG
@@ -736,7 +770,9 @@ smoke test on KVM-less machines).
 **Exit:** nginx sandbox answers `curl` on a published (DNAT) port; `exec` works;
 writes in one sandbox are invisible to another; 50 CoW clones complete with p95
 ≤ 50 ms on a reflink filesystem; `rm` discards the volume and drops the base
-reference; cold boot p50 ≤ 200 ms / p95 ≤ 400 ms (goal 150/300, closed in M6).
+reference; cold boot re-baselined for Cloud Hypervisor after the migration
+(measured ~0.6 s to agent-ready; the old Firecracker 150/300 ms goal is
+superseded).
 
 ### M3 — eBPF L2 switch (M/L)
 tc `clsact` programs + BPF maps (MAC→port table, per-port asleep state,
@@ -755,8 +791,8 @@ bridge fallback still passes the M2 e2e suite; forwarding throughput is within
 State machine + actors + activity tracker + timers; sleep barrier (mark switch
 port asleep, quiesce, halt vCPUs); TAP/device queue kept alive while paused;
 wake dispatcher (switch events); coalescing/rate limits; manual `sleep`/`wake`;
-state persistence; events; basic reconciler; **spike:** confirm that
-Firecracker's device backend keeps draining the TAP into the guest RX queue
+state persistence; events; basic reconciler; **spike:** confirm that Cloud
+Hypervisor's device backend keeps draining the TAP into the guest RX queue
 while vCPUs are paused (and measure usable queue depth).
 **Exit:** a guest process counter continues across pause→wake; a frame sent
 while paused is consumed after wake and answered; pause p95 ≤ 50 ms;
@@ -764,12 +800,15 @@ wake-to-first-byte p95 ≤ 250 ms; daemon restart leaves no orphans and adopts
 running VMs.
 
 ### M5 — Dormant (memory offload) (M/L)
-Paused memory-file snapshot; paused reload with the File memory backend (mmap);
-measure restore time; volume + memory-image fsync ordering; sparse memory image;
-RAM release; atomic metadata + checksums; disk GC/budget; interrupted-offload
-reconciliation; dormant-VMM-death recovery; compatibility checks.
+Cloud Hypervisor snapshot of the paused VM (`config.json`, `memory-ranges`,
+`state.json`); restore paused with `--restore` (file-backed memory, mmap);
+virtiofsd restart before restore; measure restore time; volume + snapshot fsync
+ordering; snapshot disk usage; RAM release; atomic metadata + checksums; disk
+GC/budget; interrupted-offload reconciliation; dormant-VMM-death recovery;
+CH-version compatibility checks.
 **Exit:** dormant sandbox ≤ 64 MB attributable anon RAM and ≥ 95% of guest RAM
-non-anonymous/reclaimable; snapshot restore p95 ≤ 150 ms; inbound frame while
+non-anonymous/reclaimable; snapshot restore p95 ≤ 150 ms (to be re-baselined
+for Cloud Hypervisor); inbound frame while
 dormant is enqueued and answered after wake; filesystem state (files, logs)
 intact after wake; dormant wake p95 ≤ 500 ms (512 MB, warm cache); daemon
 restart restores 100% of dormant sandboxes; incompatible image fails with a
@@ -783,18 +822,20 @@ CLI polish; runbook; 24 h soak with churn.
 **Exit:** a 24 h soak with 100 sandboxes (mixed servers + jobs + exec) and
 randomized traffic: wake success ≥ 99.9%, zero stuck state machines, zero
 orphan VMMs/TAPs/switch ports, no leaked volumes or base references, honest RAM
-accounting, no manual intervention; cold boot p50 ≤ 150 ms; dormant-wake
-targets met.
+accounting, no manual intervention; cold boot re-baselined after the Cloud Hypervisor
+migration; dormant-wake targets met.
 
 ### M7 — Hardening (L)
-Firecracker jailer + seccomp; eBPF program hardening (verifier limits, map
+VMM hardening: Cloud Hypervisor seccomp + Landlock, sandboxed virtiofsd (CH has
+no jailer); eBPF program hardening (verifier limits, map
 concurrency, program rollback, fuzz); build-pipeline security (rootless
 BuildKit, cache poisoning, Dockerfile trust boundary); memory-image page-cache
 behaviour (cold-start tails, readahead/prefetch); optional uffd mode (if
 adopted); snapshot GC verification; at-rest encryption design (or
 implementation, if cheap); crash-injection and state-machine property/fuzz
 tests; load/contention benchmarks; security review checklist; IPv6 decision.
-**Exit:** hostile-guest smoke tests pass inside jailer; netns + switch isolation
+**Exit:** hostile-guest smoke tests pass inside the hardened VMM/namespace
+sandbox; netns + switch isolation
 verified (no cross-sandbox ARP/MAC/IP spoofing); switch programs survive a
 verified reload/rollback; build sandboxing is documented and tested; dormant
 VMs recover after VMM death (reload from the memory file); fuzz targets run in
@@ -815,7 +856,7 @@ noted; page-cache state recorded for every number.
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| Cold boot (spawn → agent Ready) | p50 ≤ 150 ms, p95 ≤ 300 ms | 100 cold starts, lifecycle event timestamps |
+| Cold boot (spawn → agent Ready) | measured ~0.6 s with Cloud Hypervisor; targets to be re-baselined (old Firecracker goal was p50 ≤ 150 ms, p95 ≤ 300 ms) | 100 cold starts, lifecycle event timestamps |
 | Base-disk build, unchanged Dockerfile (cache hit) | no layer rebuild; ≤ 500 ms | build timestamps |
 | Dockerfile → bootable base disk (small image, cold) | ≤ 60 s; recorded baseline per image | build log |
 | CoW volume clone | p50 ≤ 10 ms, p95 ≤ 50 ms (reflink); ≤ 200 ms (dm-thin) | clone timestamps |
@@ -825,10 +866,10 @@ noted; page-cache state recorded for every number.
 | eBPF switch isolation | 0 default sandbox↔sandbox frames; spoofed MACs dropped and counted | e2e |
 | Pause (Running → Paused) | p95 ≤ 50 ms | state timestamps |
 | Wake from Paused → first delivered byte | p50 ≤ 100 ms, p95 ≤ 250 ms | switch wake event → guest byte |
-| Snapshot restore (paused memory file → paused VMM) | p50 ≤ 50 ms, p95 ≤ 150 ms | restore counter, lifecycle timestamps |
+| Snapshot restore (CH snapshot → paused VMM) | p50 ≤ 50 ms, p95 ≤ 150 ms (to be re-baselined for CH) | restore counter, lifecycle timestamps |
 | Wake from Dormant → first delivered byte (512 MB, warm cache) | p50 ≤ 150 ms, p95 ≤ 500 ms | switch event + page-fault timestamps |
 | Dormant wake, 2 GB guest, cold image | p95 ≤ 2 s | same |
-| Queue buffering while asleep | no frame loss within the measured device-queue depth; drops beyond it counted | burst test, TAP/Firecracker counters |
+| Queue buffering while asleep | no frame loss within the measured device-queue depth; drops beyond it counted | burst test, TAP/VMM counters |
 | TCP handshake across dormant wake | 100% of queued SYNs complete after wake (< 5 s asleep) | e2e |
 | Scan/wake-storm containment | 10k pps for 60 s: wakes ≤ `max_wakes_per_minute`, no host memory growth, 0 OOM | adversarial test |
 | Dormant RAM | ≤ 64 MB attributable anon/sandbox; ≥ 95% of guest RAM not anonymous (file-backed, reclaimable) | `smaps_rollup` anon vs file, before/after |
@@ -839,7 +880,7 @@ noted; page-cache state recorded for every number.
 | Wake success rate (24 h soak) | ≥ 99.9% | wake-dispatch counters |
 | Restart recovery | 100% dormant sandboxes recoverable; 0 orphan VMMs/TAPs | soak with daemon kills |
 | Density | 100 dormant + 20 running (512 MB) on a 64 GB host within 12 GB anon RSS (reclaimable page cache excluded) | load test |
-| Memory-image disk | ≤ 1.1× guest RAM; bounded by `max_disk_gb` with GC | `du` + GC test |
+| Snapshot disk | ≤ 1.1× guest RAM; bounded by `max_disk_gb` with GC | `du` + GC test |
 | Event/state observability | Every transition visible in `fastvm events` with cause | e2e assertions |
 
 ---
@@ -873,8 +914,8 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
    explicitly; events explain every recovery decision.
 10. 24 h, 100-sandbox churn soak passes §8; benchmark report committed.
 11. Docs: README quickstart, architecture overview, lifecycle/state-machine
-    reference, runbook, and ADRs for VMM choice, sleeping model, memory-file
-    restore, image build, CoW volumes, and the eBPF switch.
+    reference, runbook, and ADRs for VMM choice, sleeping model, snapshot
+    restore, image build, CoW volumes, host shares, and the eBPF switch.
 
 ---
 
@@ -890,7 +931,7 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 | Base-disk / volume reference leaks | Disk exhaustion over time | Refcounted GC, per-host disk budget, soak leak checks |
 | Build cache poisoning | Wrong or tampered base disk | Content-addressed digests, verify layer digests, builder trust boundary |
 | Static MAC→port map growth | BPF map sizing limits sandbox count | Size maps at load; document per-host port limit; monitor map hash usage |
-| Firecracker's device backend may not drain the TAP while vCPUs are paused | Frames buffer in the kernel TAP queue instead of the device queue; depth assumptions shift | M4 spike measures it; the wake dispatcher is independent, and frames are drained on resume; queue-depth numbers are measured, not assumed |
+| Cloud Hypervisor's device backend may not drain the TAP while vCPUs are paused | Frames buffer in the kernel TAP queue instead of the device queue; depth assumptions shift | M4 spike measures it; the wake dispatcher is independent, and frames are drained on resume; queue-depth numbers are measured, not assumed |
 | Device queue depth is small (guest-posted RX buffers) | Bursts while asleep drop frames | Measure usable depth in M4; size RX queues; drops are counted and TCP retransmits recover; document the bound |
 | Memory-image page cache eviction (cold image) | Wake tails | Sparse uncompressed memory image on NVMe; benchmark cold vs warm; readahead/prefetch optional; keep image files referenced/GC-protected |
 | Dormant VMM death (crash) | Queued frames lost, wake gap | Reconciler reloads from the memory file (tens of ms); losses counted, clients retransmit; tested in M7 |
@@ -898,6 +939,10 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 | Per-sandbox VMM overhead (process, TAP, switch port) limits density vs VMM-exit designs | Fewer sandboxes per host | Account for it in §8; deep sleep with VMM exit is a documented post-v0.1 lever |
 | Snapshot incompatible after VMM/kernel/CPU changes | Dormant wake fails | Pin VMM+kernel per host, record compatibility descriptor, validate before load, fail explicitly (no silent cold boot); local-only images |
 | Static neighbor / MAC after restore | Host cannot deliver frames to a sleeping guest | Re-install static neighbor on restore; verify MAC preserved across snapshot; e2e neighbor test |
+| No VMM jailer (Cloud Hypervisor seccomp + optional Landlock only) | Weaker isolation for hostile guests than a jailer-based design | Run CH with minimal privileges; sandbox virtiofsd; per-sandbox netns; document the threat model; M7 hardening |
+| virtiofsd process per host share adds overhead and a host-filesystem surface | Process cost and data exposure if a host path is over-shared | One process per share, allowlisted absolute paths, read-only where possible, sandboxed virtiofsd, treat host dirs as trusted input |
+| CH snapshot format is version-specific | Dormant wake fails after a Cloud Hypervisor upgrade | Pin CH/virtiofsd per host, record the version in snapshot metadata, fail explicitly (no silent cold boot), recreate after upgrades |
+| Cloud Hypervisor's PCI/ACPI device model is heavier than Firecracker's | Slower cold boot/wake than the pre-migration numbers | Re-baseline §8 after the migration; measure boot and wake; keep device sets minimal; publish honest numbers |
 | Wake-event races with pause/resume | Missed or duplicate wake triggers | Mark the switch port asleep before pausing and clear it only after resume; single-writer actor + coalescing; tests at transition boundaries |
 | Scan/wake-storm DoS | Sandboxes kept awake, cost spike | Per-sandbox wake rate limit, allowed-port list, coalescing; queue depth bounds damage; adversarial test |
 | Established connections across long sleeps | Client-visible resets if the retry budget expires | Guest TCP state preserved; wake targets inside common retry budgets; clients retry-safe; `wake_no_response` telemetry |
@@ -923,11 +968,11 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
    hardened isolation in M7, hostile multi-tenant only at v1.0.
 4. **Maximum guest RAM target** — default 4 GB; affects memory-image size,
    page-in latency, and GC budget.
-5. **Offload mode** — default `file` (paused memory-file snapshot + File-backed
-   reload, mmap). `uffd` (page-in handler, optional/prefetch), `swap`
-   (`madvise(MADV_PAGEOUT)`, requires host swap), and `never` are per-sandbox
-   options. Confirm Firecracker's restore time ("tens of ms") on the target
-   hardware before locking the §8 wake targets.
+5. **Offload mode** — default `file` (Cloud Hypervisor snapshot restored paused;
+   file-backed memory, mmap/demand paging). `uffd` (CH ondemand/copyonwrite
+   restore), `swap` (`madvise(MADV_PAGEOUT)`, requires host swap), and `never`
+   are per-sandbox options. Confirm CH's restore time on the target hardware
+   before locking the §8 wake targets.
 6. **Deep sleep (VMM exit)** — explicitly deferred to post-v0.1. Confirm that
    keeping a small VMM process per sleeping sandbox is acceptable for density
    targets, or that process-exit behavior is a hard requirement.
@@ -969,10 +1014,16 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 
 ## 12. Prior art & references
 
-- **Firecracker** — microVM with ~125 ms boot, pause/resume, full snapshots with
-  File (mmap) and userfaultfd memory backends for restore:
-  <https://github.com/firecracker-microvm/firecracker> and
+- **Cloud Hypervisor** — the VMM (virtio-pci, virtio-fs, virtio-vsock,
+  pause/resume, snapshot/restore): <https://www.cloudhypervisor.org/>, REST API
+  docs <https://github.com/cloud-hypervisor/cloud-hypervisor/tree/main/docs>,
+  and the kernel used by its CI
+  <https://github.com/cloud-hypervisor/linux/releases>.
+- **Firecracker** — the previous VMM backend, kept as prior art for a minimal
+  device model: <https://github.com/firecracker-microvm/firecracker> and
   <https://github.com/firecracker-microvm/firecracker/tree/main/docs/snapshotting>.
+  See [CLOUD_HYPERVISOR_MIGRATION.md](CLOUD_HYPERVISOR_MIGRATION.md) for why
+  fastvm moved to Cloud Hypervisor.
 - **Fly Machines suspend/resume** — closest product behavior: snapshot memory to
   disk, resume in hundreds of ms, auto-stop on idle / auto-start on traffic;
   caveats: ≤ 2 GB RAM recommended, snapshots invalidated by deploys, TCP
@@ -980,19 +1031,24 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 - **Cloud Hypervisor snapshot/restore** — file, `ondemand` (uffd), and
   `copyonwrite` memory modes: <https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/snapshot_restore.md>.
 - **flintlock snapshot/restore requirements** — catalogues VMM snapshot
-  constraints (disk path pinning, `network_overrides`, vsock reset on restore,
+  constraints (disk path pinning, device reattachment, vsock reset on restore,
   clone identity/RNG) that inform our design:
   <https://github.com/liquidmetal-dev/flintlock/blob/main/docs/proposals/26-09-25-snapshot-restore/0204-snapshot-restore-requirements.md>.
 - **Hypeman** — closest prior art: Go sandbox runtime with multiple hypervisors,
   standby/restore snapshotting, OCI images, and built-in ingress:
   <https://github.com/kernel/hypeman>.
-- **Firecracker network setup (TAP, host routing):**
-  <https://github.com/firecracker-microvm/firecracker/blob/main/docs/network-setup.md>.
+- **Cloud Hypervisor virtio-fs / virtiofsd:**
+  <https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/fs.md>.
+- **Cloud Hypervisor virtio-vsock:**
+  <https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/vsock.md>.
+- **Cloud Hypervisor network setup (TAP, host routing):**
+  <https://github.com/cloud-hypervisor/cloud-hypervisor/tree/main/docs>.
 - **packet(7)** (AF_PACKET passive taps, used by the bridge-mode wake fallback):
   <https://man7.org/linux/man-pages/man7/packet.7.html>.
 - **userfaultfd(2)**: <https://man7.org/linux/man-pages/man2/userfaultfd.2.html>.
-- **Firecracker rootfs/kernel setup:**
-  <https://github.com/firecracker-microvm/firecracker/blob/main/docs/rootfs-and-kernel-setup.md>.
+- **Cloud Hypervisor kernel images:**
+  <https://github.com/cloud-hypervisor/linux/releases> (fastvm pins a prebuilt
+  `vmlinux-x86_64` from this project; see `test/e2e/fetch-assets.sh`).
 - **BuildKit** (Dockerfile frontend, layer cache):
   <https://github.com/moby/buildkit>.
 - **cilium/ebpf** (pure-Go eBPF loader/verifier): <https://github.com/cilium/ebpf>.
@@ -1001,7 +1057,8 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
   <https://man7.org/linux/man-pages/man2/ioctl_ficlone.2.html>.
 - **dm-thin provisioning:**
   <https://docs.kernel.org/admin-guide/device-mapper/thin-provisioning.html>.
-- **Firecracker Go SDK**: <https://github.com/firecracker-microvm/firecracker-go-sdk>.
+- **Cloud Hypervisor API (REST over a unix socket):**
+  <https://github.com/cloud-hypervisor/cloud-hypervisor/tree/main/docs>.
 - **gVisor netstack** (candidate for a future optional L4 component, not the
   v0.1 wake path): <https://github.com/google/gvisor>.
 - **OCI image spec**: <https://github.com/opencontainers/image-spec>.

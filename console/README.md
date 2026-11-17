@@ -184,6 +184,30 @@ proxy adds no authorization, so anyone who can reach the console/proxy origin
 can open a shell. For production, terminate authentication in front of the
 console and the daemon (see [Security model](#security-model)).
 
+## Host volumes
+
+Sandboxes can mount host directories into the guest with **virtio-fs** (Cloud
+Hypervisor + `virtiofsd`), so files are shared directly instead of copied. The
+create-VM dialog has a **Host volumes (virtio-fs)** section; the same payload is
+accepted by `POST /v1/sandboxes`:
+
+```json
+{
+  "image": "demo:latest",
+  "volumes": [{ "host_path": "/srv/data", "guest_path": "/mnt/data", "read_only": true }]
+}
+```
+
+- `host_path` must be an absolute host directory. fastvmd validates it against
+  the `volumes.allowed_host_prefixes` allowlist (an empty list denies every
+  volume), so the console cannot mount arbitrary host paths.
+- `guest_path` is the absolute mountpoint inside the guest (no whitespace, `:`
+  or `,`); `read_only` is optional and defaults to read-write.
+- Volumes are static at create time. They survive pause/dormant/wake and are
+  shown in the sandbox detail drawer as `host → guest` with a read-only badge.
+- Requires Cloud Hypervisor and `virtiofsd` on the host; see
+  [the Cloud Hypervisor migration notes](../docs/CLOUD_HYPERVISOR_MIGRATION.md).
+
 ## Security model
 
 Keycloak authenticates people, but `fastvmd`'s API is **not** authenticated:

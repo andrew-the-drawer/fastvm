@@ -7,7 +7,7 @@ import {
   sandboxStatsSchema,
   versionInfoSchema,
 } from "./types";
-import type { BaseDisk, Event, Sandbox, SandboxStats, VersionInfo } from "./types";
+import type { BaseDisk, Event, Sandbox, SandboxStats, VersionInfo, Volume } from "./types";
 
 /** JSON error envelope returned by fastvmd (`internal/api.ErrorEnvelope`). */
 export interface ApiErrorBody {
@@ -152,6 +152,8 @@ export interface CreateSandboxInput {
   memory_mb?: number;
   cmd?: string[];
   no_auto_sleep?: boolean;
+  /** Host directories to mount into the guest with virtio-fs. */
+  volumes?: Volume[];
 }
 
 /** `POST /v1/sandboxes` */

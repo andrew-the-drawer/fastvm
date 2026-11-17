@@ -5,8 +5,10 @@
 # offload 8s) so the demo does not wait minutes: build a base disk, boot a
 # sandbox with a published port, let it auto-sleep, then wake it with curl.
 #
-# Requires root (TAP/bridge/nftables) and docker (to build the demo image).
-# No system-wide installation or file editing is needed.
+# Requires root (TAP/bridge/nftables), KVM, a Cloud Hypervisor binary
+# (`cloud-hypervisor` or `cloud-hypervisor-static`) and virtiofsd, plus docker
+# (to build the demo image). No system-wide installation or file editing is
+# needed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,6 +33,27 @@ done
 command -v docker >/dev/null || { echo "error: docker is required to build the demo image" >&2; exit 1; }
 command -v curl >/dev/null || { echo "error: curl is required" >&2; exit 1; }
 
+# Cloud Hypervisor: prefer the standard binary, fall back to the static build.
+if command -v cloud-hypervisor >/dev/null 2>&1; then
+  CH_BIN="$(command -v cloud-hypervisor)"
+elif command -v cloud-hypervisor-static >/dev/null 2>&1; then
+  CH_BIN="$(command -v cloud-hypervisor-static)"
+else
+  echo "error: cloud-hypervisor not found; install Cloud Hypervisor v54+ (cloud-hypervisor or cloud-hypervisor-static)" >&2
+  exit 1
+fi
+# virtiofsd is a system package; the distro build often lives at /usr/lib/virtiofsd
+# instead of on PATH (not needed by this demo, but the daemon requires it for
+# host-directory volumes).
+if command -v virtiofsd >/dev/null 2>&1; then
+  VIRTIOFSD_BIN="$(command -v virtiofsd)"
+elif [[ -x /usr/lib/virtiofsd ]]; then
+  VIRTIOFSD_BIN=/usr/lib/virtiofsd
+else
+  echo "error: virtiofsd not found; install virtiofsd >= 1.10 (distro package usually ships /usr/lib/virtiofsd)" >&2
+  exit 1
+fi
+
 export FASTVM_SOCKET="$SOCKET"
 
 mkdir -p "$DATA_DIR"
@@ -51,6 +74,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== starting fastvmd with hack/config.yaml (shortened auto-sleep: 3s/2s/8s) =="
+echo "   cloud hypervisor: $CH_BIN"
+echo "   virtiofsd: $VIRTIOFSD_BIN"
 bin/fastvmd -config "$DEMO_CONFIG" -data-dir "$DATA_DIR" -socket "$SOCKET" -log-level info > "$LOG" 2>&1 &
 DAEMON=$!
 for _ in $(seq 1 100); do [[ -S "$SOCKET" ]] && break; sleep 0.1; done

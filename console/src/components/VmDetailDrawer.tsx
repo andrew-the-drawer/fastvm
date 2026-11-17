@@ -352,6 +352,38 @@ export function VmDetailDrawer({
       <Divider className="drawer-divider" />
 
       <section className="drawer-section">
+        <h3 className="drawer-section-title">Host volumes</h3>
+        {sandbox.volumes !== undefined && sandbox.volumes.length > 0 ? (
+          <Descriptions
+            column={1}
+            size="small"
+            colon={false}
+            items={sandbox.volumes.map((volume, index) => ({
+              key: `${volume.host_path}-${volume.guest_path}-${index}`,
+              label: `Volume ${index + 1}`,
+              children: (
+                <span>
+                  <span className="vm-mono">{volume.host_path}</span>
+                  <span className="port-arrow"> → </span>
+                  <span className="vm-mono">{volume.guest_path}</span>{" "}
+                  <Tag
+                    color={volume.read_only === true ? "gold" : "green"}
+                    className="vm-status-tag"
+                  >
+                    {volume.read_only === true ? "read-only" : "read-write"}
+                  </Tag>
+                </span>
+              ),
+            }))}
+          />
+        ) : (
+          <p className="drawer-muted">No host volumes mounted.</p>
+        )}
+      </section>
+
+      <Divider className="drawer-divider" />
+
+      <section className="drawer-section">
         <div className="drawer-section-head">
           <h3 className="drawer-section-title">Recent events</h3>
           <span className="drawer-section-hint">{sandboxEvents.length} shown</span>

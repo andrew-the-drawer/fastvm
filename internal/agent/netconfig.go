@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// GuestIface is the virtio-net interface name Firecracker exposes.
+	// GuestIface is the virtio-net interface name the VMM exposes.
 	GuestIface = "eth0"
 
 	// CmdlineIPKey and CmdlineGWKey carry the guest NIC configuration on the

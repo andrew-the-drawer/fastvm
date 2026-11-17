@@ -21,7 +21,7 @@ import (
 	"fastvm/internal/network"
 	"fastvm/internal/store"
 	l2switch "fastvm/internal/switch"
-	"fastvm/internal/vmm/firecracker"
+	"fastvm/internal/vmm/cloudhypervisor"
 	"fastvm/internal/volume"
 )
 
@@ -151,12 +151,13 @@ func run(args []string) error {
 	if sw != nil {
 		defer sw.Close()
 	}
-	driver, err := firecracker.NewDriver(firecracker.Options{
-		Binary: "firecracker",
-		RunDir: filepath.Join(cfg.DataDir, "run"),
+	driver, err := cloudhypervisor.NewDriver(cloudhypervisor.Options{
+		Binary:    cfg.VMM.Binary,
+		Virtiofsd: cfg.VMM.Virtiofsd,
+		RunDir:    filepath.Join(cfg.DataDir, "run"),
 	})
 	if err != nil {
-		return fmt.Errorf("firecracker driver: %w", err)
+		return fmt.Errorf("cloud hypervisor driver: %w", err)
 	}
 
 	dialAgent := func(ctx context.Context, vsockUDS string, cid uint32) (agent.Client, error) {

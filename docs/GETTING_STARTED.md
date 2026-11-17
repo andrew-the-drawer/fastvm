@@ -14,9 +14,10 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 |---|---|
 | Linux x86_64 + KVM | `/dev/kvm` must be accessible. |
 | **root / `CAP_NET_ADMIN`** | The daemon creates TAP devices, a Linux bridge, and nftables rules. Run `fastvmd` as root (or grant it `CAP_NET_ADMIN`). Required for booting sandboxes and for `--publish` ports. |
-| Firecracker | Tested with v1.17: `firecracker --version`. |
+| Cloud Hypervisor v54+ | `cloud-hypervisor`, or the static build `cloud-hypervisor-static` (this host: `/usr/bin/cloud-hypervisor-static`, v54.0). Check with `cloud-hypervisor --version` / `cloud-hypervisor-static --version`. The daemon searches `cloud-hypervisor` then `cloud-hypervisor-static` on `PATH`; override with `vmm.binary` (absolute path) or `FASTVM_CLOUD_HYPERVISOR`. |
+| virtiofsd ≥ 1.10 | Serves host-directory volumes over virtio-fs. The distro package often ships `/usr/lib/virtiofsd` instead of putting `virtiofsd` on `PATH`; the daemon falls back to it. Only needed for `--volume` sandboxes. Override with `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. |
 | Go 1.24+ | Only to build from source. |
-| Kernel image | `make assets` downloads a Firecracker-compatible `vmlinux.bin`; or point `kernel_path` at your own pinned kernel. |
+| Kernel image | `make assets` downloads the pinned Cloud Hypervisor test kernel (`vmlinux-x86_64`, sha256 `edfeb8a8…a853`) into `test/e2e/assets/vmlinux.bin`; or point `kernel_path` at your own pinned kernel with virtio-pci/virtio-fs built in. |
 | Docker (optional) | Only for `fastvm image build` and template image builds (Dockerfile → OCI → ext4). |
 | e2fsprogs (`mke2fs`), `nft` | Base disk creation and DNAT rules. |
 
@@ -33,11 +34,15 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 git clone <this repo> fastvm && cd fastvm
 make build            # bin/fastvm, bin/fastvmd, bin/fastvm-agent
 make test             # unit tests (no KVM/root needed)
-make assets           # kernel + alpine rootfs for demos/e2e (cached, gitignored)
+make assets           # Cloud Hypervisor kernel + Alpine rootfs for demos/e2e (cached, gitignored)
 sudo make install     # /usr/local/bin (or: make install PREFIX=$HOME/.local)
 ```
 
-`make assets` prints the paths it downloaded under `test/e2e/assets/`.
+`make assets` downloads the prebuilt Cloud Hypervisor test kernel
+(`ch-release-v7.2.8-20261009/vmlinux-x86_64`, SHA-256 verified) and an Alpine
+rootfs into `test/e2e/assets/`, then prints those paths plus whether a Cloud
+Hypervisor binary and `virtiofsd` are available on the host (it never installs
+them).
 
 ---
 
@@ -52,6 +57,8 @@ data_dir: /tmp/fastvm/data
 socket_path: /run/fastvm/fastvm.sock
 kernel_path: test/e2e/assets/vmlinux.bin
 agent_path: bin/fastvm-agent
+vmm: {binary: cloud-hypervisor, virtiofsd: virtiofsd}
+volumes: {allowed_host_prefixes: []}   # empty = deny all host-directory mounts
 lifecycle: {idle_window: 60s, pause_after: 10m, offload_after: 30m, destroy_after: 0s}
 # ... see the file for the idle/memory/wake/switch sections
 ```
@@ -59,6 +66,13 @@ lifecycle: {idle_window: 60s, pause_after: 10m, offload_after: 30m, destroy_afte
 Its relative `kernel_path`/`agent_path` are resolved from the directory you
 start the daemon in, so run from the repo root. For a real installation, copy it
 to `/etc/fastvm/config.yaml` and point the paths at `/var/lib/fastvm/...`.
+
+`vmm.binary` / `vmm.virtiofsd` name the executables the daemon launches: it
+prefers the configured value, otherwise searches `PATH` for `cloud-hypervisor`
+then `cloud-hypervisor-static`, and for `virtiofsd` then `/usr/lib/virtiofsd`
+(`/usr/libexec/virtiofsd`). Absolute paths are accepted, and
+`FASTVM_CLOUD_HYPERVISOR` / `FASTVM_VIRTIOFSD` override both. `virtiofsd` is
+only started when a sandbox has host-directory volumes.
 
 Start the daemon as root (it runs in the foreground; `Ctrl-C` stops it):
 
@@ -88,6 +102,12 @@ What happens:
 - On the first sandbox it creates TAP devices, the uplink veth pair, `/30`
   gateway addresses/static neighbors and nftables DNAT rules (bridge mode also
   creates `bridge fastvm0`).
+- Each sandbox is one Cloud Hypervisor process launched with all of its devices
+  at once (`--kernel`, `--cmdline`, `--cpus`, `--memory`, `--disk`, `--net`,
+  `--vsock`, `--serial file=…`, plus one `--fs`/`virtiofsd` per host volume).
+  The guest console (`ttyS0`) is written to `$DATA_DIR/sandboxes/<id>/serial.log`;
+  pause/resume and snapshot/restore go through Cloud Hypervisor's REST API on a
+  per-sandbox unix socket.
 - `hack/config.yaml` uses generous windows (60 s idle, 10 min pause, 30 min
   dormant) so a coding-agent VM is not paused a few seconds after you stop
   typing. `hack/demo-wake.sh` derives a shortened copy (3 s / 2 s / 8 s) for the
@@ -175,10 +195,38 @@ bin/fastvm ls
 # 82090a0f3d5e  demo  Running  sha256:ba919  10.77.0.2  2      512M
 ```
 
-`run` boots a real Firecracker microVM, waits for the guest agent over
+`run` boots a real Cloud Hypervisor microVM, waits for the guest agent over
 virtio-vsock, then starts the command after `--` as a detached workload.
-`--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`, and
-`--no-auto-sleep` are available.
+`--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`,
+`--volume host:guest[:ro]` (repeatable), and `--no-auto-sleep` are available.
+
+### Host-directory volumes (virtio-fs)
+
+Host paths can be mounted into the guest at create time (read-write by default,
+read-only with `:ro`). The host path must be absolute and under one of the
+prefixes in `volumes.allowed_host_prefixes` — the demo config ships with an empty
+list, which **denies all host mounts**; add e.g. `/tmp` to try it:
+
+```yaml
+volumes:
+  allowed_host_prefixes: [/tmp]
+```
+
+```sh
+mkdir -p /tmp/fastvm-share && echo hello > /tmp/fastvm-share/host.txt
+bin/fastvm run --image demo:latest --name shared \
+  --volume /tmp/fastvm-share:/mnt/share:ro -- /bin/sleep 3600
+
+bin/fastvm exec shared -- cat /mnt/share/host.txt   # hello
+```
+
+Each volume gets a `virtiofsd` process and a Cloud Hypervisor `--fs` device; the
+daemon passes the mounts over the kernel cmdline and the guest `/init` mounts
+them before the workload starts, so `exec` and the shell see them immediately.
+Volumes are attached at create time (no hotplug) and survive pause/dormant wake;
+virtio-fs DAX is not supported, and mounted host directories must be treated as
+trusted input. The same array is accepted by `POST /v1/sandboxes` as
+`volumes: [{host_path, guest_path, read_only?}]`.
 
 ### Exec into it
 
@@ -218,10 +266,12 @@ bin/fastvm get demo | grep -E '"state"|"wake_count"'
 # "wake_count": 1
 ```
 
-At `Dormant`, guest RAM was handed to a Firecracker memory file and the VMM was
-restored back into a **paused** state; only touched pages are resident. The VMM
-and its virtio-net device queue stay alive, so an inbound packet still lands in
-the guest's queue and wakes it (§6).
+At `Dormant`, Cloud Hypervisor snapshotted the paused VM (guest memory plus
+device state in `snapshot_dir`) and the VMM was restarted from that snapshot in a
+**paused** state (`--restore`); only touched pages are resident. The VMM and its
+virtio-net device queue stay alive, so an inbound packet still lands in the
+guest's queue and wakes it (§6). Snapshot restore is Cloud-Hypervisor-version
+specific, and any `virtiofsd` processes are restarted before the restore.
 
 Prove state survived the whole cycle:
 
@@ -297,7 +347,8 @@ non-interactive.
 
 The flagship behavior: an idle sandbox pauses itself, pages its memory to disk,
 and a network request wakes it and is answered. The ready-made demo does all of
-it in one command (requires root, Docker, and the model above):
+it in one command (requires root, Docker, Cloud Hypervisor, virtiofsd, and the
+model above):
 
 ```sh
 sudo make demo
@@ -406,7 +457,7 @@ config puts it at `/run/fastvm/fastvm.sock`.
 | `Running` | workload executing | VMM, TAP, switch port, volume |
 | `Idle` | quiet; pause countdown running | same |
 | `Paused` | vCPUs halted; memory resident | VMM, TAP, device queue, wake detection |
-| `Dormant` | guest RAM in a memory file (mmap restore), VMM alive **paused** | VMM, TAP, device queue, wake detection |
+| `Dormant` | Cloud Hypervisor snapshot restored **paused** (guest memory file-backed, device state in the snapshot dir) | VMM, TAP, device queue, wake detection |
 | `Running` | woken by traffic or API | same as Running |
 | `Stopped` | deleted | — |
 
@@ -431,6 +482,9 @@ starting point; full schema is in `internal/config/config.go`.
 | `socket_path` | `/run/fastvm/fastvm.sock` | API unix socket |
 | `kernel_path` | `test/e2e/assets/vmlinux.bin` | pinned guest kernel (relative to cwd) |
 | `agent_path` | `bin/fastvm-agent` | guest agent injected into images |
+| `vmm.binary` | `cloud-hypervisor` | VMM executable (absolute path or name; falls back to `cloud-hypervisor-static`, override with `FASTVM_CLOUD_HYPERVISOR`) |
+| `vmm.virtiofsd` | `virtiofsd` | virtio-fs server for host volumes (falls back to `/usr/lib/virtiofsd`; override with `FASTVM_VIRTIOFSD`) |
+| `volumes.allowed_host_prefixes` | `[]` | absolute host paths allowed as `--volume` shares; empty/absent denies all host mounts (distinct from `volume.*`, which configures CoW runtime volumes) |
 | `init_path` | empty | custom `/init`; empty uses the built-in script |
 | `lifecycle.idle_window` | `60s` | Running→Idle debounce |
 | `lifecycle.pause_after` | `10m` | Idle→Paused |
@@ -461,15 +515,16 @@ $DATA_DIR/
   images/<hex>.img + .json        content-addressed base disks
   images/tags/...                 tag -> digest index
   volumes/<sandbox-id>.img        writable CoW runtime volumes
-  sandboxes/<sandbox-id>/         serial.log, VMM logs, api/vsock sockets,
-                                  memory/{mem,vmstate} when dormant
+  sandboxes/<sandbox-id>/         serial.log, VMM logs, vmm-api.sock, vsock.sock,
+                                  memory/{config.json,memory-ranges,state.json} when dormant
   run/                            VMM working dirs
 ```
 
-VMM boot failures include the VMM stderr tail in the error/event; the guest
-console is in `sandboxes/<id>/serial.log` (serial is not reattached after a
-snapshot restore — a Firecracker limitation; exec/vsock/disk state are
-unaffected).
+VMM boot failures include the Cloud Hypervisor stderr tail in the error/event;
+the guest console is captured in `sandboxes/<id>/serial.log` by CH's
+file-backed serial backend. Dormant snapshots live in the same sandbox
+directory (`memory/`); they restore only with the same Cloud Hypervisor version,
+so pin the VMM per host.
 
 ---
 
@@ -484,7 +539,9 @@ FASTVM_DOCKER_TESTS=1 go test ./internal/image/...  # Dockerfile build test
 ```
 
 The privileged tests skip cleanly when their prerequisites are missing
-(`/dev/kvm`, Firecracker, docker, assets, `CAP_NET_ADMIN`/`CAP_BPF`).
+(`/dev/kvm`, KVM, Cloud Hypervisor, virtiofsd, docker, assets,
+`CAP_NET_ADMIN`/`CAP_BPF`). Cloud Hypervisor / virtiofsd paths for the tests can
+be overridden with `FASTVM_CLOUD_HYPERVISOR` / `FASTVM_VIRTIOFSD`.
 
 How the e2e suites were verified in development:
 
@@ -496,7 +553,7 @@ How the e2e suites were verified in development:
 | CLI/API over unix socket | `... -run TestCLIOverUnixSocket` | PASS ~2.1 s: run→ls→exec→deep sleep→wake→events→rm |
 | Wake on network (real TAP) | `... -run TestDaemonNetworkWakeRealVM` | PASS ~1.8 s: boot with guest NIC, pause, TCP connect is queued and wakes the VM |
 | Daemon binary | `... -run TestDaemonBinarySmoke` | PASS ~3 s: fastvmd starts with the demo config, CLI version/image ls/ls, clean SIGTERM |
-| Driver-level snapshot | `FASTVM_E2E=1 go test ./internal/vmm/firecracker/ -run TestE2EFirecracker` | PASS ~6 s: pause freezes vCPUs, snapshot→restore paused, guest state intact |
+| Driver-level checks | `go test ./internal/vmm/cloudhypervisor/` | unit: launch args (virtio-fs/net/vsock), CH API client, volume validation; real VM paths are covered by the lifecycle/CLI e2e rows above |
 | Docker build | `FASTVM_DOCKER_TESTS=1 go test ./internal/image/ -run TestBuildDocker` | PASS ~2.7 s: Dockerfile→rootfs→ext4, debugfs-verified contents |
 | Bridge/TAP/nft | `FASTVM_NET_TESTS=1 go test ./internal/network/...` | PASS ~0.9 s (isolated network namespace) |
 
@@ -512,7 +569,10 @@ fallback and uses the Linux bridge.
 | `cannot reach fastvmd at ...` | Wrong socket. Export `FASTVM_SOCKET` or pass `-socket` before the subcommand; check the daemon is running. The demo config uses `/run/fastvm/fastvm.sock`. |
 | `permission denied` on the socket | The daemon created it as root with mode 0600; run the CLI as root too (same root shell) or run the daemon as the user that will use it. |
 | `operation not permitted` creating TAP/bridge/nft | The daemon needs `CAP_NET_ADMIN`: run `fastvmd` as root. |
-| `firecracker: executable file not found in $PATH` | Install Firecracker and make sure the daemon's PATH includes it. |
+| `cloud-hypervisor: executable file not found in $PATH` | Install Cloud Hypervisor v54+ (or `cloud-hypervisor-static`) and make sure it is on the daemon's `PATH`, or set `vmm.binary` / `FASTVM_CLOUD_HYPERVISOR` to its absolute path. |
+| `virtiofsd: executable file not found` | Install virtiofsd ≥ 1.10 (the distro package usually installs `/usr/lib/virtiofsd`; the daemon falls back to it) or set `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. Only needed for host-directory volumes. |
+| `volume N: host_path "..." is outside the allowed host prefixes` | Add the absolute host path prefix to `volumes.allowed_host_prefixes` in the daemon config (empty denies all host mounts), or drop the `--volume` flag. |
+| A dormant sandbox fails to restore after upgrading | The Cloud Hypervisor snapshot format is version-specific: restore with the same CH version (and CPU/disk/vsock paths). Delete the sandbox or re-create it after a VMM upgrade. |
 | Boot fails / sandbox goes `Failed` | Check `/dev/kvm` permissions, `kernel_path`, and the VMM stderr tail in the event plus `sandboxes/<id>/serial.log`. |
 | `image not found` on `run` | `fastvm image ls` to see tags; build or ingest first. |
 | `fastvm image build` fails with docker error | Docker daemon must be reachable (and have network for FROM/RUN). Use the ingest API for offline rootfs. |

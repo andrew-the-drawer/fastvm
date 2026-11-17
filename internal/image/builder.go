@@ -36,7 +36,7 @@ const (
 const (
 	// formatVersion is mixed into the content digest. Bump it whenever the
 	// disk layout or injection changes so stale caches are not reused.
-	formatVersion = 1
+	formatVersion = 2
 
 	diskExt = ".img"
 	metaExt = ".json"

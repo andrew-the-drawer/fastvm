@@ -87,12 +87,18 @@ template\:copilot: template-check
 assets:
 	./test/e2e/fetch-assets.sh
 
+# One-command wake-on-network demo. Needs root, Docker, a Cloud Hypervisor
+# binary (cloud-hypervisor or cloud-hypervisor-static) and virtiofsd.
 demo:
 	@test "$$(id -u)" -eq 0 || { echo "make demo must run as root: sudo make demo"; exit 1; }
 	./hack/demo-wake.sh
 
+# Real-VM end-to-end suite. Requires KVM, Cloud Hypervisor v54+ (or
+# cloud-hypervisor-static) and the assets from `make assets`; virtiofsd is
+# needed only by the host-volume tests (Cloud Hypervisor + virtiofsd paths can
+# be overridden with FASTVM_CLOUD_HYPERVISOR / FASTVM_VIRTIOFSD).
 e2e: assets
-	FASTVM_E2E=1 $(GO) test -count=1 -timeout 10m ./test/e2e/... ./internal/vmm/firecracker/...
+	FASTVM_E2E=1 $(GO) test -count=1 -timeout 10m ./test/e2e/... ./internal/vmm/cloudhypervisor/...
 
 netns-test:
 	FASTVM_NET_TESTS=1 $(GO) test -count=1 -timeout 5m ./internal/network/...

@@ -7,20 +7,24 @@ Files the image pipeline must inject into every fastvm base disk:
 | `/usr/local/bin/fastvm-agent` | `go build ./cmd/fastvm-agent` | Static binary: `CGO_ENABLED=0`          |
 | `/init`                       | `guest/init.sh`               | Mode `0755`, POSIX `sh` (busybox)       |
 
-The kernel is pinned per host and booted with
-`console=ttyS0 root=/dev/vda rw init=/init`; `/init` mounts `/proc`, `/sys`,
-`/dev`, `/dev/pts` and `/dev/shm`, then `exec`s the agent as PID 1.
+The kernel is pinned per host (the prebuilt Cloud Hypervisor test kernel, which
+has virtio-pci, virtio-blk/net/console/vsock and virtio-fs/FUSE built in) and
+booted with `console=ttyS0 root=/dev/vda rw init=/init`; `/init` mounts `/proc`,
+`/sys`, `/dev`, `/dev/pts`, `/dev/shm` and any virtio-fs host volumes, then
+`exec`s the agent as PID 1.
 
 ## Agent
 
-- Listens on vsock port **1024** (`internal/agent.VsockPort`) using the
-  Firecracker host-side Unix socket bridge. No network interface is required.
+- Listens on vsock port **1024** (`internal/agent.VsockPort`) through the Cloud
+  Hypervisor virtio-vsock device (`--vsock cid=<n>,socket=<uds>`): the guest sees
+  `/dev/vsock`, and the host talks to it over the same Unix-socket
+  `CONNECT <port>` protocol as before. No network interface is required.
 - Wire protocol: newline-delimited JSON, one `Request` per line host→guest and
   one `Response` or `Event` per line guest→host (`internal/agent/proto.go`).
 - On every new connection it sends `{"type":"ready"}`, then replays the current
   workload state (`workload_started` / `workload_exit`) and the busy advisory.
-- After a Firecracker snapshot restore the vsock connection resets; the host
-  client reconnects lazily on the next request (best-effort, one retry).
+- After a Cloud Hypervisor snapshot restore the vsock connection resets; the
+  host client reconnects lazily on the next request (best-effort, one retry).
 
 ## Operations
 
@@ -38,6 +42,24 @@ The kernel is pinned per host and booted with
 Detached workload stdout/stderr is appended to `/var/log/fastvm/workload.log`
 inside the guest (falling back to the serial console when the path is not
 writable); it is deliberately not part of the activity signal.
+
+## Host volumes (virtio-fs)
+
+A sandbox created with host-directory volumes gets one Cloud Hypervisor
+`--fs tag=fastvm<n>,socket=<...>` device per volume. The daemon encodes the
+mounts in the kernel command line as
+
+```
+fastvm.volume.<n>=fastvm<n>:<guest_path>:<ro|rw>
+```
+
+and `/init` mounts each one (`mount -t virtiofs fastvm<n> <guest_path>`) before
+exec'ing the agent, so workloads, `exec` sessions and the shell see them from
+the first command. Host paths are validated by the daemon against
+`volumes.allowed_host_prefixes`; each share is served by a `virtiofsd` process.
+Volumes are static at create time (no hotplug), and virtio-fs DAX is not
+supported by Cloud Hypervisor. Mounted host directories must be treated as
+trusted input.
 
 ## Guest networking
 
@@ -85,6 +107,7 @@ CoW volume).
 - The agent waits briefly for the virtio-vsock misc device (`/dev/vsock`) to
   appear (the device may probe asynchronously); `/init` also runs `mdev -s` and
   falls back to `mknod` from `/sys/class/misc/vsock/dev`.
-- The serial console is not re-attached after a Firecracker snapshot restore
-  (Firecracker only accepts `/serial` configuration before `InstanceStart`).
-  Filesystem state and vsock work normally after restore.
+- The serial console is written to a file by Cloud Hypervisor
+  (`--serial file=<data_dir>/sandboxes/<id>/serial.log`); it captures the kernel
+  boot output and `FASTVM_BOOT_OK` and is the first place to look when a boot
+  fails. Filesystem state and vsock work normally after a snapshot restore.

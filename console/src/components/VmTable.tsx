@@ -108,8 +108,25 @@ export function VmTable({
           <span className="vm-name" title={sandbox.name}>
             {sandbox.name}
           </span>
-          <span className="vm-id" title={sandbox.id}>
+          <span
+            className="vm-id"
+            title={
+              sandbox.volumes !== undefined && sandbox.volumes.length > 0
+                ? `${sandbox.id}\n${sandbox.volumes
+                    .map(
+                      (volume) =>
+                        `${volume.host_path} → ${volume.guest_path}${
+                          volume.read_only === true ? " (read-only)" : ""
+                        }`,
+                    )
+                    .join("\n")}`
+                : sandbox.id
+            }
+          >
             {shortId(sandbox.id, 10)}
+            {sandbox.volumes !== undefined && sandbox.volumes.length > 0
+              ? ` · ${sandbox.volumes.length} vol${sandbox.volumes.length === 1 ? "" : "s"}`
+              : ""}
           </span>
         </div>
       ),

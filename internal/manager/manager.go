@@ -16,6 +16,7 @@ type CreateOptions struct {
 	VCPUs       int
 	MemoryMB    int
 	Ports       []types.PortMapping
+	Volumes     []types.Volume
 	Cmd         []string          // workload started after agent Ready (detached)
 	Env         map[string]string // workload environment
 	NoAutoSleep bool

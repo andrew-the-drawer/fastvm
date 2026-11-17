@@ -28,7 +28,7 @@ on `/var/tmp` (disk-backed) to avoid consuming RAM in `/tmp` (tmpfs).
 | `e2fsprogs` | `filefrag` (and `mkfs.ext4` for image builds). |
 | `jq` | Read the volume sidecar JSON. |
 | `docker` | `make image` builds the demo base disk. |
-| `firecracker` + `/dev/kvm` | Boot the sandbox. |
+| `cloud-hypervisor` (or `cloud-hypervisor-static`) + `/dev/kvm` | Boot the sandbox. |
 | `go` + `make` | Build fastvm. |
 
 On this host all of these are already installed; nothing was installed by this

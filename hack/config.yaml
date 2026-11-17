@@ -14,12 +14,35 @@
 #
 # The daemon needs root or CAP_NET_ADMIN (TAP/bridge/nftables) and, for the
 # eBPF switch, CAP_BPF; without CAP_BPF it automatically falls back to the
-# Linux bridge.
+# Linux bridge. Cloud Hypervisor v54+ (and virtiofsd when host-directory volumes
+# are used) must be installed; see the vmm section below.
 
 data_dir: /tmp/fastvm-cow/data
 socket_path: /run/fastvm/fastvm.sock
 kernel_path: test/e2e/assets/vmlinux.bin
 agent_path: bin/fastvm-agent
+
+# VMM backend. Cloud Hypervisor is the only supported backend. The binary is
+# looked up on PATH (`cloud-hypervisor`, then `cloud-hypervisor-static`) and can
+# be overridden with an absolute path or FASTVM_CLOUD_HYPERVISOR.
+vmm:
+  binary: cloud-hypervisor
+  # virtiofsd serves host-directory volumes (virtio-fs). Needed only when a
+  # sandbox has volumes; override with an absolute path (e.g. /usr/lib/virtiofsd)
+  # when it is not on PATH.
+  virtiofsd: virtiofsd
+
+# Host-directory volumes (virtio-fs). Each volume's host_path must be an
+# absolute path under one of these prefixes; an empty list denies all host
+# mounts. Add /tmp here to try host shares in demos, e.g.
+#   allowed_host_prefixes: [/tmp]
+volumes:
+  # Host-directory mounts are opt-in: empty denies all. Local dev prefixes:
+  # /tmp for throwaway shares, and this machine's fastvm checkout so a sandbox
+  # can mount the source. Replace/remove the checkout path before committing.
+  allowed_host_prefixes:
+    - /tmp
+    - /home/anh/Code/fastvm
 
 lifecycle:
   # Generous windows: a coding-agent VM should not pause after a few seconds of
@@ -49,6 +72,8 @@ wake:
   max_wakes_per_minute: 6
   coalesce_window: 100ms
 
+# CoW runtime-volume settings (not to be confused with the top-level `volumes`
+# host-directory shares above).
 volume:
   cow: reflink
   size_gb: 8

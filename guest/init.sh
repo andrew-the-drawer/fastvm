@@ -39,6 +39,36 @@ if [ ! -e /dev/vsock ]; then
 	fi
 fi
 
+# Mount host directories shared over virtio-fs (Cloud Hypervisor --fs).
+# The daemon appends one entry per volume to the kernel cmdline:
+#   fastvm.volume.<n>=<tag>:<guest_path>:<ro|rw>
+# Keep this POSIX sh/busybox only. Paths are validated by the daemon.
+i=0
+while :; do
+	spec=""
+	for tok in $(cat /proc/cmdline); do
+		case "$tok" in
+		"fastvm.volume.$i="*)
+			spec=${tok#fastvm.volume.$i=}
+			;;
+		esac
+	done
+	[ -n "$spec" ] || break
+	tag=${spec%%:*}
+	rest=${spec#*:}
+	mnt=${rest%%:*}
+	mode=${rest##*:}
+	mkdir -p "$mnt" 2>/dev/null || true
+	if [ "$mode" = "ro" ]; then
+		mount -t virtiofs -o ro "$tag" "$mnt" 2>/dev/null ||
+			echo "fastvm: warning: could not mount $tag (ro) at $mnt"
+	else
+		mount -t virtiofs "$tag" "$mnt" 2>/dev/null ||
+			echo "fastvm: warning: could not mount $tag at $mnt"
+	fi
+	i=$((i + 1))
+done
+
 # Best-effort identity; not required for correctness.
 hostname fastvm 2>/dev/null || true
 echo "FASTVM_BOOT_OK"

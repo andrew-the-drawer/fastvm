@@ -35,6 +35,16 @@ export const portMappingSchema = z.object({
 });
 export type PortMapping = z.infer<typeof portMappingSchema>;
 
+/** Host-directory volume mounted into the guest with virtio-fs. */
+export const volumeSchema = z
+  .object({
+    host_path: z.string(),
+    guest_path: z.string(),
+    read_only: z.boolean().optional(),
+  })
+  .passthrough();
+export type Volume = z.infer<typeof volumeSchema>;
+
 /** `GET /v1/sandboxes` and `GET /v1/sandboxes/{ref}` */
 export const sandboxSchema = z
   .object({
@@ -51,6 +61,7 @@ export const sandboxSchema = z
     created_at: z.string(),
     updated_at: z.string(),
     ports: z.array(portMappingSchema).optional(),
+    volumes: z.array(volumeSchema).optional(),
     error: z.string().optional(),
   })
   .passthrough();
