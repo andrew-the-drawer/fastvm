@@ -75,7 +75,7 @@ VM. The terminal is [ghostty-web](https://github.com/coder/ghostty-web) —
 Ghostty's VT100 parser compiled to WebAssembly. It ships dark and light themes
 plus a follow-the-system mode, switched next to the user avatar.
 
-![fastvm console in light and dark themes](docs/console-themes.png)
+![fastvm console dashboard](docs/console.png)
 
 Exec into a sandbox from the browser — the console streams a real PTY over a
 WebSocket:
