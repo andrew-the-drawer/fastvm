@@ -45,7 +45,7 @@ func (d *Daemon) Shell(ctx context.Context, ref string, req agent.ShellRequest) 
 		rt.execActive--
 		if strings.Contains(err.Error(), `unknown op "shell"`) {
 			return nil, fmt.Errorf("sandbox image was built with an older guest agent that has no shell support; "+
-				"rebuild its base disk (templates now build v3) and recreate the sandbox: %w", err)
+				"rebuild its base disk and recreate the sandbox: %w", err)
 		}
 		return nil, err
 	}

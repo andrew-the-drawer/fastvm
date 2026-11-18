@@ -631,7 +631,7 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
   per-share `virtiofsd` process at `<sandbox>/fs-<n>.sock`; CH gets a `--fs
   tag=fastvm<n>,socket=...` device and `--memory ...,shared=on`. The daemon
   appends `fastvm.volume.<n>=fastvm<n>:<guest_path>:<ro|rw>` to the kernel
-  cmdline and the guest `/init` mounts it before the agent starts. Shares are
+  cmdline and the guest agent-init mounts it before serving. Shares are
   static at create time (no hotplug), survive pause/dormant (virtiofsd is
   restarted before restore), and DAX is not supported by CH.
 - **Sleep and destroy.** The volume persists across pause and dormant unchanged

@@ -8,33 +8,34 @@
 #
 #   sudo ./hack/setup-cow-fs.sh
 #   sudo ./hack/setup-cow-fs.sh status
+#   sudo ./hack/setup-cow-fs.sh resize [SIZE]
 #   sudo ./hack/setup-cow-fs.sh teardown
 #
 # Then start fastvm with this data dir (or set data_dir: /tmp/fastvm-cow/data
 # in a config copy):
 #
 #   sudo bin/fastvmd --config hack/config.yaml \
-#     -data-dir /tmp/fastvm-cow/data -socket /tmp/fastvm-demo.sock
+#     --data-dir /tmp/fastvm-cow/data --socket /tmp/fastvm-demo.sock
 #
 # Environment overrides:
 #   FASTVM_COW_IMG   backing image        (default /var/tmp/fastvm-cow.img)
 #   FASTVM_COW_MNT   mount point          (default /tmp/fastvm-cow)
 #   FASTVM_COW_DATA  data directory       (default $MNT/data)
-#   FASTVM_COW_SIZE  image size           (default 16G)
+#   FASTVM_COW_SIZE  image size           (default 64G)
 #   FASTVM_COW_FORCE 1 to reformat an existing non-XFS image
 set -euo pipefail
 
 IMG="${FASTVM_COW_IMG:-/var/tmp/fastvm-cow.img}"
 MNT="${FASTVM_COW_MNT:-/tmp/fastvm-cow}"
 DATA="${FASTVM_COW_DATA:-$MNT/data}"
-SIZE="${FASTVM_COW_SIZE:-16G}"
+SIZE="${FASTVM_COW_SIZE:-64G}"
 LABEL="${FASTVM_COW_LABEL:-fastvm-cow}"
 FORCE="${FASTVM_COW_FORCE:-0}"
 CMD="${1:-setup}"
 
 die() { echo "error: $*" >&2; exit 1; }
 usage() {
-	sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
 }
 
 need() {
@@ -92,7 +93,7 @@ cmd_status() {
 		[[ -f "$IMG" ]] && echo "image exists: $IMG ($(du -h --apparent-size "$IMG" | cut -f1) apparent, $(du -h "$IMG" | cut -f1) allocated)"
 		return 1
 	fi
-	findmnt -T "$DATA" -o TARGET,SOURCE,FSTYPE,OPTIONS
+	findmnt -T "$DATA" -o TARGET,SOURCE,FSTYPE,SIZE,OPTIONS
 	xfs_info "$MNT" | grep -q 'reflink=1' && echo "reflink=1: yes" || echo "reflink=1: NO"
 	du -sh "$DATA" 2>/dev/null || true
 }
@@ -161,6 +162,32 @@ cmd_setup() {
 	echo "Use it with a daemon config data_dir: $DATA"
 }
 
+cmd_resize() {
+	require_root
+	need findmnt xfs_info truncate losetup numfmt stat xfs_growfs
+	validate_paths
+	is_mounted || die "$MNT is not mounted; run setup first"
+	[[ "$(findmnt -n -T "$MNT" -o FSTYPE)" == "xfs" ]] || die "$MNT is not XFS"
+
+	local target="${1:-$SIZE}"
+	local target_bytes current_bytes
+	target_bytes="$(numfmt --from=iec "$target" 2>/dev/null)" || die "invalid size: $target"
+	current_bytes="$(stat -c %s "$IMG")"
+	[[ "$target_bytes" -gt "$current_bytes" ]] ||
+		die "target size $target is not larger than the current image ($(numfmt --to=iec "$current_bytes"))"
+
+	local loop
+	loop="$(loop_for_image)"
+	[[ -n "$loop" ]] || die "no loop device found for $IMG"
+
+	echo "growing $IMG from $(numfmt --to=iec "$current_bytes") to $target"
+	truncate -s "$target" "$IMG"
+	losetup -c "$loop"
+	xfs_growfs -d "$MNT" >/dev/null
+	findmnt -T "$DATA" -o TARGET,SOURCE,FSTYPE,SIZE
+	echo "resize complete"
+}
+
 cmd_teardown() {
 	require_root
 	validate_paths
@@ -184,6 +211,7 @@ cmd_teardown() {
 case "$CMD" in
 	setup) cmd_setup ;;
 	status) cmd_status ;;
+	resize) cmd_resize "${2:-}" ;;
 	teardown) cmd_teardown ;;
 	help|-h|--help) usage ;;
 	*) usage; exit 2 ;;

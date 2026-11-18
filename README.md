@@ -22,7 +22,8 @@ virtio-fs.
 - **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
 - **Checkpoints.** Save RAM/CPU/disk, restore a copy, or make a live copy.
 - **Volumes and ports.** virtio-fs host mounts and nftables published ports.
-- **Templates and console.** Coding-agent templates and the OIDC web console.
+- **Declarative configs and console.** Run `.fvmfile` sandboxes (e.g. coding
+  agents), and use the OIDC web console.
 
 ## Try it
 
@@ -57,7 +58,7 @@ fastvmctl run --net --image alpine --allow-host example.com -- \
 ```
 
 On-demand image builds show a Bubbles progress display. Host volumes, published
-ports, checkpoints, and templates are covered in
+ports, checkpoints, and declarative configs are covered in
 [docs/FASTVMCTL.md](docs/FASTVMCTL.md) and
 [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
 
@@ -78,20 +79,21 @@ fastvmctl checkpoint copy --from original-vm --name copy-1
 fastvmctl exec copy-1 -- cat /root/checkpoint-source.txt
 fastvmctl exec copy-1 -- sh -c 'ps | grep "[s]leep 600"'   # process survived
 
-# Save the original’s running state to a directory
-fastvmctl checkpoint save --name original-vm -o original-vm.checkpoint
+# Save the original’s running state; prints the generated checkpoint name
+checkpoint=$(fastvmctl checkpoint save --name original-vm)
 
 # Restore it as a new running sandbox
-fastvmctl checkpoint restore --from original-vm.checkpoint --name copy-2
+fastvmctl checkpoint restore --from "$checkpoint" --name copy-2
 fastvmctl exec copy-2 -- cat /root/checkpoint-source.txt
 fastvmctl exec copy-2 -- sh -c 'ps | grep "[s]leep 600"'  # process survived
 
 fastvmctl rm copy-1 copy-2 original-vm
 ```
 
-Checkpoints are directories on the daemon host; the base image referenced by
-the checkpoint must still exist when restoring. Host-directory mounts are not
-included in checkpoints.
+Checkpoints are stored under the daemon data directory
+(`<data_dir>/checkpoints/<name>`), so the disk can be reflinked on CoW
+filesystems. The base image referenced by the checkpoint must still exist when
+restoring. Host-directory mounts are not included in checkpoints.
 
 ## Web console
 
@@ -104,7 +106,7 @@ v54+ (`cloud-hypervisor`, or the static build `cloud-hypervisor-static`),
 virtiofsd ≥ 1.10 (only for host-directory volumes), and Go 1.24+ to build. The
 daemon needs root/`CAP_NET_ADMIN` for TAP/veth/nftables; `CAP_BPF` enables the
 eBPF switch, otherwise it falls back to the Linux bridge. Docker/BuildKit is
-optional and only used to build base disks and template images.
+optional and only used to build base images.
 
 ## Documentation
 
@@ -115,13 +117,14 @@ optional and only used to build base disks and template images.
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |
 | [Cloud Hypervisor migration](docs/CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor, kernel/tooling, virtio-fs volumes |
 | [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, checkpoints |
+| [`.fvmfile` configs](docs/FVMFILE.md) | Declarative sandbox configs for coding agents and reproducible runs |
 | [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 
 ## Development
 
 ```sh
-make build     # bin/fastvmctl (+ fastvm symlink), bin/fastvmd, bin/fastvm-agent
+make build     # bin/fastvmctl, bin/fastvmd, bin/fastvm-agent
 make test      # unit tests (no KVM or root needed)
 make test-race # unit tests under the race detector
 make e2e       # real Cloud Hypervisor boot/pause/dormant/wake e2e

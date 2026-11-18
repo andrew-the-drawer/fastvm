@@ -16,7 +16,7 @@ type BuildSpec struct {
 	SizeGB     int    // base disk size; 0 = default
 	KernelPath string // optional pinned kernel to record (not embedded)
 	AgentPath  string // guest agent binary to inject
-	InitPath   string // guest init script to inject
+	InitPath   string // optional custom guest init to inject
 }
 
 // IngestSpec imports an already-unpacked rootfs.

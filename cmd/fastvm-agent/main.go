@@ -37,6 +37,7 @@ func ensurePATH() {
 func main() {
 	ensurePATH()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	ensureGuestFilesystems()
 
 	// Credit the host-provided seed before anything can call getrandom(); a
 	// fresh microVM's CRNG otherwise may not be initialized yet.

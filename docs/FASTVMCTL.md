@@ -39,6 +39,9 @@ fastvmctl run --net -it --image alpine -- /bin/sh
 # can be reached. Requires bridge switch mode.
 fastvmctl run --net --allow-host registry.npmjs.org --image alpine -- wget -qO- https://google.com
 
+# Declarative sandbox config
+fastvmctl run -f hack/codex.fvmfile -it
+
 # Lifecycle: --no-start creates without booting; resume boots/wakes it.
 fastvmctl run --net --name agent --image alpine --no-start
 fastvmctl resume --name agent
@@ -47,9 +50,9 @@ fastvmctl resume --name agent
 fastvmctl run --net --name agent --image alpine
 
 # Checkpoints: save the running state, make a live copy, or restore a saved one.
-fastvmctl checkpoint save --name agent -o agent.checkpoint
+fastvmctl checkpoint save --name agent          # prints the generated checkpoint name
 fastvmctl checkpoint copy --from agent --name try-1
-fastvmctl checkpoint restore --from agent.checkpoint --name agent2
+fastvmctl checkpoint restore --from <checkpoint> --name agent2
 
 # Existing commands
 fastvmctl ls
@@ -63,6 +66,9 @@ fastvmctl events [-n N]
 fastvmctl image <build|ls|rm>
 fastvmctl version
 ```
+
+Use `.fvmfile` configs (`fastvmctl run -f <file>`) for reusable coding-agent
+sandboxes; examples live in `hack/*.fvmfile`.
 
 Global socket selection: `--socket <path>` before the command, or
 `FASTVM_SOCKET`; default `/run/fastvm/fastvm.sock`.
@@ -95,15 +101,17 @@ Global socket selection: `--socket <path>` before the command, or
 - `checkpoint -o DIR` writes `checkpoint.json`, `snapshot/` (CH config, memory,
   CPU state) and `disk.img`. Running sandboxes are paused only for the snapshot
   and resumed afterwards. Host volume mounts are not captured yet.
-- `checkpoint save --name REF -o DIR` writes `checkpoint.json`, `snapshot/`
-  (CH config, memory, CPU state) and `disk.img`. Running sandboxes are paused
-  only for the snapshot and resumed afterwards. Host volume mounts are not
-  captured yet.
+- `checkpoint save --name REF` writes `checkpoint.json`, `snapshot/` (CH
+  config, memory, CPU state) and `disk.img` under
+  `<data_dir>/checkpoints/<generated-name>`, then prints the generated name.
+  Running sandboxes are paused only for the snapshot and resumed afterwards.
+  Keeping checkpoints in the data directory lets the disk be reflinked on CoW
+  filesystems. Host volume mounts are not captured yet.
 - `checkpoint copy --from PARENT --name CHILD` makes a live copy: the parent is
   paused briefly, the child is restored running with its own writable disk, IP,
   and hostname. Disk cloning uses reflink where the filesystem supports it and
   sparse copy otherwise; guest RAM is snapshotted and restored.
-- `checkpoint restore --from DIR --name REF` restores the checkpoint and boots
+- `checkpoint restore --from NAME --name REF` restores the checkpoint and boots
   it running; the restored sandbox gets a new TAP/IP (when the checkpoint had
   networking) and a new hostname via the guest agent. The base image referenced
   by the checkpoint must still exist in the image store.
@@ -119,6 +127,7 @@ Global socket selection: `--socket <path>` before the command, or
 - Allowlists are bridge-only (eBPF mode returns a clear error).
 - Hostname/IP reconfiguration needs a guest agent built with the `network` and
   `hostname` ops; rebuild images after upgrading the agent.
-- Checkpoint output paths are daemon-host paths, not client-side uploads.
+- Checkpoint names are resolved under `<data_dir>/checkpoints`; absolute paths
+  and path traversal are rejected.
 - `checkpoint restore` starts the restored VM immediately (no stopped/paused
   restore state yet).

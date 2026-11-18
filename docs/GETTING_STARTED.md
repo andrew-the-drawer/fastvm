@@ -18,7 +18,7 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 | virtiofsd ≥ 1.10 | Serves host-directory volumes over virtio-fs. The distro package often ships `/usr/lib/virtiofsd` instead of putting `virtiofsd` on `PATH`; the daemon falls back to it. Only needed for `--volume` sandboxes. Override with `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. |
 | Go 1.24+ | Only to build from source. |
 | Kernel image | `make assets` downloads the pinned Cloud Hypervisor test kernel (`vmlinux-x86_64`, sha256 `edfeb8a8…a853`) into `test/e2e/assets/vmlinux.bin`; or point `kernel_path` at your own pinned kernel with virtio-pci/virtio-fs built in. |
-| Docker (optional) | Only for `fastvm image build` and template image builds (Dockerfile → OCI → ext4). |
+| Docker (optional) | Only for `fastvm image build` (Dockerfile → OCI → ext4). |
 | e2fsprogs (`mke2fs`), `nft` | Base disk creation and DNAT rules. |
 
 > The public sandbox this repo was developed in runs as an unprivileged user, so
@@ -32,7 +32,7 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 
 ```sh
 git clone <this repo> fastvm && cd fastvm
-make build            # bin/fastvm, bin/fastvmd, bin/fastvm-agent
+make build            # bin/fastvmctl, bin/fastvmd, bin/fastvm-agent
 make test             # unit tests (no KVM/root needed)
 make assets           # Cloud Hypervisor kernel + Alpine rootfs for demos/e2e (cached, gitignored)
 sudo make install     # /usr/local/bin (or: make install PREFIX=$HOME/.local)
@@ -110,22 +110,21 @@ What happens:
   per-sandbox unix socket.
 - `hack/config.yaml` uses generous windows (60 s idle, 10 min pause, 30 min
   dormant) so a coding-agent VM is not paused a few seconds after you stop
-  typing. `hack/demo-wake.sh` derives a shortened copy (3 s / 2 s / 8 s) for the
-  wake demo; tune `lifecycle.*` for your workload.
+  typing. Tune `lifecycle.*` for your workload.
 
 Because the daemon owns the socket as root, run the CLI from the same root
 shell (or with `sudo`). In another root shell:
 
 ```sh
 export FASTVM_SOCKET=/run/fastvm/fastvm.sock
-bin/fastvm version
+bin/fastvmctl version
 # fastvm 1.2.3-4-ga6f516a        (nearest tag/commit; -dirty for a dirty tree)
 # fastvmd 1.2.3-4-ga6f516a
 ```
 
 The build identity is injected by `make build` from `git describe --tags
 --always` (plus `-dirty` when the worktree has changes) and is also served by
-`GET /v1/version`. `bin/fastvm --version` and `bin/fastvmd --version` print only
+`GET /v1/version`. `bin/fastvmctl --version` and `bin/fastvmd --version` print only
 that binary's build identity; `fastvm version` prints the CLI and daemon
 versions together. Plain `go build` falls back to the VCS revision Go embeds.
 
@@ -144,20 +143,20 @@ The repo ships an example Dockerfile at
 make image
 # demo:latest  sha256:<64-hex>  8589934592 bytes
 
-bin/fastvm image ls
+bin/fastvmctl image ls
 # TAG          DIGEST        SIZE      SOURCE
 # (a disk whose tag moved to a newer build is shown as "-" and remains
 #  addressable by digest; tag -> digest comes from images/tags)
 # demo:latest  sha256:...    8192 MiB  dockerfile
 ```
 
-`make image` runs `bin/fastvm --socket /run/fastvm/fastvm.sock image build -f
+`make image` runs `bin/fastvmctl --socket /run/fastvm/fastvm.sock image build -f
 hack/Dockerfile.example -t demo:latest hack` (override with
 `make image FASTVM_SOCKET=/path/to/fastvm.sock`). Use any Dockerfile/context
 directly the same way:
 
 ```sh
-bin/fastvm image build -f /path/to/Dockerfile -t myapp:latest /path/to/context
+bin/fastvmctl image build -f /path/to/Dockerfile -t myapp:latest /path/to/context
 ```
 
 How it works: `fastvm image build` runs `DOCKER_BUILDKIT=1 docker build` (unique temp
@@ -170,8 +169,8 @@ once no sandbox references it; `--force` overrides the reference check and
 deletes the disk plus every tag pointing at its digest:
 
 ```sh
-bin/fastvm image rm demo:latest
-bin/fastvm image rm --force sha256:<hex>
+bin/fastvmctl image rm demo:latest
+bin/fastvmctl image rm --force sha256:<hex>
 ```
 
 Without Docker you can import an unpacked rootfs through the API:
@@ -190,14 +189,14 @@ curl --unix-socket /run/fastvm/fastvm.sock -X POST \
 ### Boot a sandbox
 
 ```sh
-bin/fastvm run -d \
+bin/fastvmctl run -d \
   --image demo:latest \
   --name demo \
   --no-auto-sleep \
   -- /bin/sh -c 'while true; do sleep 5; done'
 # 82090a0f3d5e7805896a0a8d	Running	demo
 
-bin/fastvm ls
+bin/fastvmctl ls
 # ID            NAME  STATE    IMAGE         IP         VCPUS  MEM
 # 82090a0f3d5e  demo  Running  sha256:ba919  10.77.0.2  2      512M
 ```
@@ -223,15 +222,15 @@ volumes:
 
 ```sh
 mkdir -p /tmp/fastvm-share && echo hello > /tmp/fastvm-share/host.txt
-bin/fastvm run -d --image demo:latest --name shared \
+bin/fastvmctl run -d --image demo:latest --name shared \
   --volume /tmp/fastvm-share:/mnt/share:ro -- /bin/sleep 3600
 
-bin/fastvm exec shared -- cat /mnt/share/host.txt   # hello
+bin/fastvmctl exec shared -- cat /mnt/share/host.txt   # hello
 ```
 
 Each volume gets a `virtiofsd` process and a Cloud Hypervisor `--fs` device; the
-daemon passes the mounts over the kernel cmdline and the guest `/init` mounts
-them before the workload starts, so `exec` and the shell see them immediately.
+daemon passes the mounts over the kernel cmdline and the guest agent-init
+mounts them before serving, so `exec` and the shell see them immediately.
 Volumes are attached at create time (no hotplug) and survive pause/dormant wake;
 virtio-fs DAX is not supported, and mounted host directories must be treated as
 trusted input. The same array is accepted by `POST /v1/sandboxes` as
@@ -240,16 +239,16 @@ trusted input. The same array is accepted by `POST /v1/sandboxes` as
 ### Exec into it
 
 ```sh
-bin/fastvm exec demo -- /bin/sh -c 'echo before-sleep > /tmp/demo.txt; cat /etc/motd'
+bin/fastvmctl exec demo -- /bin/sh -c 'echo before-sleep > /tmp/demo.txt; cat /etc/motd'
 # hello from fastvm
 ```
 
 ### Open an interactive shell
 
 ```sh
-bin/fastvm exec -it demo -- /bin/sh    # Docker-style interactive PTY; Ctrl-D exits
-bin/fastvm shell demo                  # shorthand for exec -it demo -- /bin/sh
-bin/fastvm exec -it demo -- /bin/bash  # or any other command
+bin/fastvmctl exec -it demo -- /bin/sh    # Docker-style interactive PTY; Ctrl-D exits
+bin/fastvmctl shell demo                  # shorthand for exec -it demo -- /bin/sh
+bin/fastvmctl exec -it demo -- /bin/bash  # or any other command
 ```
 
 `exec -it` allocates a PTY in the guest, puts your terminal into raw mode,
@@ -257,19 +256,19 @@ forwards window-size changes, and returns the guest exit code. While the shell
 is open the sandbox is kept exec-active, so auto-sleep will not pause it
 underneath you. `fastvm shell` is just shorthand for `exec -it <vm> -- /bin/sh`.
 This is the easiest way to debug a sandbox (and to run the coding-agent TUIs
-from the templates interactively).
+like the coding-agent examples interactively).
 
 ### Pause, spill RAM to disk, wake
 
 ```sh
-bin/fastvm pause demo --deep      # Running -> Paused -> Dormant
+bin/fastvmctl pause demo --deep      # Running -> Paused -> Dormant
 sleep 0.5
 bin/fastvmctl get demo | grep -E '"state"|"wake_count"|"snapshot_dir"'
 # "state": "Dormant"
 # "snapshot_dir": "/tmp/fastvm-demo-data/sandboxes/<id>/memory"
 # "wake_count": 0
 
-bin/fastvm resume demo
+bin/fastvmctl resume demo
 bin/fastvmctl get demo | grep -E '"state"|"wake_count"'
 # "state": "Running"
 # "wake_count": 1
@@ -285,7 +284,7 @@ specific, and any `virtiofsd` processes are restarted before the restore.
 Prove state survived the whole cycle:
 
 ```sh
-bin/fastvm exec demo -- cat /tmp/demo.txt
+bin/fastvmctl exec demo -- cat /tmp/demo.txt
 # before-sleep
 ```
 
@@ -295,7 +294,7 @@ is faster.
 ### Observe the lifecycle and clean up
 
 ```sh
-bin/fastvm events -n 12
+bin/fastvmctl events -n 12
 # TIME          NAME  ID            TYPE   MESSAGE
 # 13:33:52.600  demo  <id>          state  sandbox running
 # 13:33:52.615  demo  <id>          state  Idle: idle
@@ -303,8 +302,8 @@ bin/fastvm events -n 12
 # 13:33:52.897  demo  <id>          state  Dormant: memory offloaded to disk: .../memory
 # 13:33:53.407  demo  <id>          state  Running: woken
 
-bin/fastvm rm demo     # stops VMM, deletes TAP/network, volume, memory image, record
-bin/fastvm ls          # empty
+bin/fastvmctl rm demo     # stops VMM, deletes TAP/network, volume, memory image, record
+bin/fastvmctl ls          # empty
 ```
 
 Stop the daemon with `Ctrl-C`; a graceful stop first snapshots active
@@ -313,81 +312,44 @@ VMMs and removes host-side network state. The next daemon start adopts those
 dormant sandboxes, so sandboxes survive a normal restart. Dormant memory
 images/volumes remain on disk either way.
 
-### Coding-agent templates
+### Declarative sandboxes (`.fvmfile`)
 
-Three templates are baked into the CLI:
-
-| Template | Agent | Host env forwarded |
-|---|---|---|
-| `claude` | Anthropic Claude Code (`@anthropic-ai/claude-code`) | `ANTHROPIC_API_KEY` |
-| `codex` | OpenAI Codex CLI (`@openai/codex`) | `OPENAI_API_KEY` |
-| `copilot` | GitHub Copilot CLI (`@github/copilot`) | `GH_TOKEN` or `GITHUB_TOKEN` |
-
-Templates only reference prebuilt image tags (`fastvm/<name>:v6`). The
-Dockerfiles live in [`hack/templates/`](../hack/templates/) and are built once
-against the running daemon (Docker + network required):
+Reusable sandboxes can be described in a strict YAML `.fvmfile` and launched
+with `fastvmctl run -f`:
 
 ```sh
-sudo make template:copilot     # one image (or template:claude / template:codex)
-sudo make template-images      # or all three
-
-bin/fastvm template list
-# -d: stdout is exactly the sandbox name, for scripts
-vm=$(bin/fastvm template start copilot -d)
-bin/fastvm exec -it "$vm" -- copilot
-
-# without -d you also get the ID, template and suggested commands
-bin/fastvm template start claude
+bin/fastvmctl run -f hack/hello.fvmfile
+bin/fastvmctl run -f hack/codex.fvmfile -it
 ```
 
-`make template-images` (or an individual `template:<name>`) can be reused as a
-CI/pipeline step (it accepts `FASTVM_SOCKET=...`); `template start` does not build Dockerfiles implicitly and
-fails with a clear message if the referenced image is missing.
+Examples live next to the repo tooling:
 
-API keys are forwarded from your environment when set (or use
-`--env K=V` explicitly). `--name`, `--vcpus`, `--memory` and
-`--no-auto-sleep` override template defaults. For interactive agent TUIs use
-`fastvm shell <vm>` and run the agent inside it; `fastvm exec` remains
-non-interactive.
+- [`hack/hello.fvmfile`](../hack/hello.fvmfile) — minimal image + command
+- [`hack/codex.fvmfile`](../hack/codex.fvmfile) — OpenAI Codex coding-agent shape
+  with env/network/resource settings
+- [`hack/claude.fvmfile`](../hack/claude.fvmfile) — Anthropic Claude Code shape
+- [`hack/nodejs.fvmfile`](../hack/nodejs.fvmfile) — Node.js REPL sandbox
+- [`hack/docker.fvmfile`](../hack/docker.fvmfile) — Docker-in-VM (dind) sandbox; the pinned kernel has no iptables/bridge modules, so dockerd runs with `--bridge=none --iptables=false` and nested containers use `--network host`
+
+The file supports `image`, `command`, `env` (`${HOST_VAR}` expansion), host
+volumes, published ports, network/allowlist, vCPU/memory, and auto-sleep
+policy. The config image must be built separately if it is not a public
+Docker image. See [`.fvmfile` configs](FVMFILE.md) for the full field reference.
 
 ---
 
 ## 6. Auto-sleep and wake-on-network
 
 The flagship behavior: an idle sandbox pauses itself, pages its memory to disk,
-and a network request wakes it and is answered. The ready-made demo does all of
-it in one command (requires root, Docker, Cloud Hypervisor, virtiofsd, and the
-model above):
+and a network request wakes it and is answered.
 
-```sh
-sudo make demo
-# or: sudo ./hack/demo-wake.sh
-```
-
-Under the hood it uses [hack/config.yaml](../hack/config.yaml) with a shortened
-copy of its auto-sleep windows (3 s / 2 s / 8 s) and `/tmp` state, plus
-[hack/demo-wake.sh](../hack/demo-wake.sh), then prints:
-
-```text
-== 1. build a base disk from a Dockerfile ==
-== 2. boot a sandbox and publish port 8080 -> guest 80 ==
-== 3. curl while the sandbox is running ==
-hello-from-sleeping-vm
-== 4. wait for the daemon to auto-sleep it (idle -> paused -> dormant) ==
-   state: Dormant  wake_count: 0
-== 5. curl the sleeping sandbox: the packet wakes it, then it answers ==
-hello-from-sleeping-vm
-   curl wall: 0.01 s
-   state: Running  wake_count: 1
-```
-
-### Manual version
+### Walkthrough
 
 With the daemon from §3 running, run a tiny HTTP server in the guest and publish
 it on host port 8080:
 
 ```sh
-bin/fastvm run -d --image demo:latest --name web --publish 8080:80 -- \
+bin/fastvmctl run -d --image demo:latest --name web --publish 8080:80 -- \
   /bin/sh -c 'echo hello from a sleeping VM > /tmp/index.html;
               exec /bin/busybox httpd -f -p 0.0.0.0:80 -h /tmp'
 ```
@@ -397,8 +359,7 @@ bin/fastvm run -d --image demo:latest --name web --publish 8080:80 -- \
 
 Wait for auto-sleep, or force it with `fastvm pause web --deep`. With
 `hack/config.yaml` the automatic windows are 60 s idle → 10 min pause → 30 min
-dormant; the demo script shortens them to 3 s → 2 s → 8 s. `fastvmctl get web`
-shows `Paused` then `Dormant`:
+dormant. `fastvmctl get web` shows `Paused` then `Dormant`:
 
 ```sh
 fastvmctl get web | grep state      # "state": "Dormant"
@@ -442,9 +403,7 @@ get <sandbox>                               full sandbox JSON record
 exec <sandbox> -- <cmd...>                  run a command in the guest (auto-wakes if asleep)
 exec -it <sandbox> -- <cmd...>              same, but with an interactive PTY
 shell <sandbox> [-- <cmd...>]               shorthand for exec -it <sandbox> -- /bin/sh
-template list                               list baked-in coding-agent templates
-template start <t> [-d] [--name N] [--env K=V] [--vcpus N] [--memory MiB]
-                                            boot a template sandbox; -d prints the name only
+run -f <file.fvmfile>                       create+boot from declarative config
 pause <sandbox> [--deep]                    pause; --deep also offloads guest RAM to disk
 resume <sandbox>                            resume a paused/dormant sandbox
 rm <sandbox>                                delete sandbox + volume + memory image
@@ -585,9 +544,9 @@ fallback and uses the Linux bridge.
 | Boot fails / sandbox goes `Failed` | Check `/dev/kvm` permissions, `kernel_path`, and the VMM stderr tail in the event plus `sandboxes/<id>/serial.log`. |
 | `image not found` on `run` | `fastvm image ls` to see tags; build or ingest first. |
 | `fastvm image build` fails with docker error | Docker daemon must be reachable (and have network for FROM/RUN). Use the ingest API for offline rootfs. |
-| `exec: "<tool>": executable file not found in $PATH` | Base disks built before the PATH fix contain an old agent/init. Rebuild the image (templates now build `v6`) or call through a shell: `fastvm exec <vm> -- /bin/sh -c '<tool> --help'`. |
-| `fastvm shell`: `unknown op "shell"` | The image was built with an older guest agent. Rebuild the base disk (templates now build `v6`) and recreate the sandbox. |
-| A guest command (e.g. `claude --help`) hangs with no output | The image predates guest-entropy seeding: `getrandom()` blocks until the microVM CRNG initializes. Rebuild the base disk (templates now build `v6`) and recreate the sandbox. |
+| `exec: "<tool>": executable file not found in $PATH` | Base disks built before the PATH fix contain an old agent/init. Rebuild the base image or call through a shell: `fastvm exec <vm> -- /bin/sh -c '<tool> --help'`. |
+| `fastvm shell`: `unknown op "shell"` | The image was built with an older guest agent. Rebuild the base disk and recreate the sandbox. |
+| A guest command (e.g. `claude --help`) hangs with no output | The image predates guest-entropy seeding: `getrandom()` blocks until the microVM CRNG initializes. Rebuild the base disk and recreate the sandbox. |
 | Build on an old guest kernel fails to mount ext4 | Host `mke2fs` defaults can enable newer features; pass a matching kernel or pin features in the builder. |
 | Daemon log says `eBPF switch unavailable; using Linux bridge` | Expected without `CAP_BPF`/BTF/verifier support; the bridge + AF_PACKET path is the fallback. Set `switch.mode: bridge` to silence the attempt. |
 | `--publish` port refuses connections on localhost | The guest server must listen on IPv4 (`0.0.0.0`). Busybox `httpd -p 80` binds IPv6-only; use `-p 0.0.0.0:80`. |

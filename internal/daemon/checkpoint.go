@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"fastvm/internal/manager"
@@ -35,17 +36,92 @@ type CheckpointMeta struct {
 
 var hostnameArgRE = regexp.MustCompile(`fastvm\.hostname=[^ ]+`)
 
+const checkpointsDirName = "checkpoints"
+
+var checkpointNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// checkpointsRoot is the only location where saved checkpoints live. Keeping
+// it inside the data directory means reflink-capable filesystems can CoW the
+// runtime disk into the checkpoint and back out on restore.
+func (d *Daemon) checkpointsRoot() string {
+	return filepath.Join(d.cfg.DataDir, checkpointsDirName)
+}
+
+// resolveCheckpointName validates a client-supplied checkpoint name and returns
+// its managed path. Absolute/path-like values are rejected so the API never
+// writes outside the data directory.
+func (d *Daemon) resolveCheckpointName(name string) (string, error) {
+	if name == "" {
+		return "", errors.New("checkpoint: name is required")
+	}
+	if filepath.IsAbs(name) || strings.ContainsRune(name, filepath.Separator) || name == "." || name == ".." {
+		return "", fmt.Errorf("checkpoint: invalid name %q", name)
+	}
+	if !checkpointNameRE.MatchString(name) {
+		return "", fmt.Errorf("checkpoint: invalid name %q (use letters, digits, dot, dash, underscore)", name)
+	}
+	return filepath.Join(d.checkpointsRoot(), name), nil
+}
+
+func (d *Daemon) newCheckpointName(sb *types.Sandbox) (string, error) {
+	base := sb.Name
+	if base == "" {
+		base = "checkpoint"
+	}
+	base = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, base)
+	base = strings.Trim(base, ".-_")
+	if base == "" {
+		base = "checkpoint"
+	}
+	if len(base) > 80 {
+		base = base[:80]
+	}
+	for i := 0; i < 100; i++ {
+		name := fmt.Sprintf("%s-%s", base, d.now().UTC().Format("20060102-150405"))
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", name, i+1)
+		}
+		if _, err := os.Stat(filepath.Join(d.checkpointsRoot(), name)); errors.Is(err, os.ErrNotExist) {
+			return name, nil
+		}
+	}
+	return "", errors.New("checkpoint: could not allocate a unique name")
+}
+
 // Checkpoint exports a sandbox's memory/CPU snapshot and writable disk into a
-// portable directory. Running sandboxes are paused only for the snapshot and
-// resumed afterwards.
-func (d *Daemon) Checkpoint(ctx context.Context, ref, outDir string) error {
+// managed checkpoint under the data directory, returning its name. Running
+// sandboxes are paused only for the snapshot and resumed afterwards.
+func (d *Daemon) Checkpoint(ctx context.Context, ref, name string) (string, error) {
 	rt, err := d.runtimeFor(ctx, ref)
 	if err != nil {
-		return err
+		return "", err
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	return d.checkpointLocked(ctx, rt, outDir)
+	if name == "" {
+		name, err = d.newCheckpointName(&rt.sb)
+		if err != nil {
+			return "", err
+		}
+	}
+	dir, err := d.resolveCheckpointName(name)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(d.checkpointsRoot(), 0o700); err != nil {
+		return "", err
+	}
+	if err := d.checkpointLocked(ctx, rt, dir); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // checkpointLocked exports a checkpoint; the caller must hold rt.mu.
@@ -143,9 +219,13 @@ func (d *Daemon) CheckpointCopy(ctx context.Context, from, name string) (types.S
 	parentID := rt.sb.ID
 	tmp := filepath.Join(d.cfg.DataDir, "checkpoints", fmt.Sprintf("copy-%s-%d", parentID, time.Now().UnixNano()))
 	defer os.RemoveAll(tmp)
-	// Checkpoint() takes the runtime lock itself.
-	if err := d.Checkpoint(ctx, from, tmp); err != nil {
-		return types.Sandbox{}, err
+	// Capture the parent under the runtime lock without treating the temporary
+	// copy directory as a saved checkpoint.
+	rt.mu.Lock()
+	cpErr := d.checkpointLocked(ctx, rt, tmp)
+	rt.mu.Unlock()
+	if cpErr != nil {
+		return types.Sandbox{}, cpErr
 	}
 	return d.createFromCheckpoint(ctx, manager.CreateOptions{
 		Name: name, FromCheckpoint: tmp, Start: boolPtr(true),

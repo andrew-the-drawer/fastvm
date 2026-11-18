@@ -1,0 +1,28 @@
+# Claude Code coding-agent sandbox.
+#
+#   export ANTHROPIC_API_KEY=...
+#   fastvmctl run -f hack/claude.fvmfile -it
+#
+# Uses the public Docker Hardened Images Claude image; ensure Docker can pull it.
+version: 1
+name: claude
+image: dhi.io/claude
+command: ["claude", "--dangerously-skip-permissions"]
+
+# ${NAME} values are expanded from the host environment.
+env:
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+  DISABLE_AUTOUPDATER: 1
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+
+network:
+  enabled: true
+  # Optional; omit allow_hosts for unrestricted egress.
+  allow_hosts:
+    - api.anthropic.com
+
+resources:
+  vcpus: 2
+  memory_mb: 4096
+
+no_auto_sleep: true

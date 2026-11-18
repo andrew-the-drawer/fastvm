@@ -5,13 +5,14 @@ Files the image pipeline must inject into every fastvm base disk:
 | Guest path                    | Source                        | Notes                                   |
 |-------------------------------|-------------------------------|-----------------------------------------|
 | `/usr/local/bin/fastvm-agent` | `go build ./cmd/fastvm-agent` | Static binary: `CGO_ENABLED=0`          |
-| `/init`                       | `guest/init.sh`               | Mode `0755`, POSIX `sh` (busybox)       |
+| `/init`                       | static `fastvm-agent` binary  | Mode `0755`; PID 1, mounts guest FS + volumes |
 
 The kernel is pinned per host (the prebuilt Cloud Hypervisor test kernel, which
 has virtio-pci, virtio-blk/net/console/vsock and virtio-fs/FUSE built in) and
-booted with `console=ttyS0 root=/dev/vda rw init=/init`; `/init` mounts `/proc`,
-`/sys`, `/dev`, `/dev/pts`, `/dev/shm` and any virtio-fs host volumes, then
-`exec`s the agent as PID 1.
+booted with `console=ttyS0 root=/dev/vda rw init=/init`. The injected static
+agent is `/init`: it mounts `/proc`, `/sys`, `/dev`, `/dev/pts`, `/dev/shm`,
+`/run`, and any virtio-fs host volumes, then serves the vsock protocol as PID 1.
+A custom `init_path` is still supported for non-standard guests.
 
 ## Agent
 

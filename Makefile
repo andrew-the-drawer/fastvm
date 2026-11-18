@@ -15,14 +15,13 @@ BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 INSTALL ?= install
 
-.PHONY: all build install test test-race vet fmt clean start image template-images template-check assets e2e demo netns-test docker-test bpf
+.PHONY: all build install test test-race vet fmt clean start image assets e2e netns-test docker-test bpf
 
 all: fmt vet build test
 
 build:
 	mkdir -p $(BIN)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmctl ./cmd/fastvm
-	ln -sf fastvmctl $(BIN)/fastvm
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmd ./cmd/fastvmd
 	CGO_ENABLED=0 $(GO) build -o $(BIN)/fastvm-agent ./cmd/fastvm-agent
 
@@ -38,7 +37,7 @@ install:
 		{ echo "missing binaries: run 'make build' first"; exit 1; }
 	$(INSTALL) -d "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -m 0755 $(BIN)/fastvmctl $(BIN)/fastvmd $(BIN)/fastvm-agent "$(DESTDIR)$(BINDIR)/"
-	ln -sf fastvmctl "$(DESTDIR)$(BINDIR)/fastvm"
+	@if [ -L "$(DESTDIR)$(BINDIR)/fastvm" ]; then rm -f "$(DESTDIR)$(BINDIR)/fastvm"; fi
 
 test:
 	$(GO) test ./...
@@ -61,51 +60,16 @@ start:
 	$(BIN)/fastvmd --config hack/config.yaml
 
 FASTVM_SOCKET ?= /run/fastvm/fastvm.sock
-FASTVM ?= $(BIN)/fastvm
+FASTVM ?= $(BIN)/fastvmctl
 
 # Build hack/Dockerfile.example into a bootable base disk via the running daemon.
 image:
-	@test -x $(BIN)/fastvm || { echo "missing $(BIN)/fastvm: run 'make build' first"; exit 1; }
+	@test -x $(BIN)/fastvmctl || { echo "missing $(BIN)/fastvmctl: run 'make build' first"; exit 1; }
 	@$(FASTVM) --socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path/to/fastvm.sock)"; exit 1; }
 	$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/Dockerfile.example -t demo:latest hack
 
-# Must stay in sync with internal/template/template.go image tags.
-TEMPLATE_VERSION ?= v6
-TEMPLATE_NAMES := claude codex copilot
-
-# Shared preflight for template-image builds.
-template-check:
-	@test -x $(BIN)/fastvm || { echo "missing $(BIN)/fastvm: run 'make build' first"; exit 1; }
-	@$(FASTVM) --socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path)"; exit 1; }
-
-define build_template_image
-	@echo "building fastvm/$(1):$(TEMPLATE_VERSION)"
-	$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/templates/$(1).Dockerfile -t fastvm/$(1):$(TEMPLATE_VERSION) hack/templates
-endef
-
-# Build all three images.
-template-images: template-check
-	@for t in $(TEMPLATE_NAMES); do \
-		echo "building fastvm/$$t:$(TEMPLATE_VERSION)"; \
-		$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/templates/$$t.Dockerfile -t fastvm/$$t:$(TEMPLATE_VERSION) hack/templates || exit $$?; \
-	done
-
-# Build one image, e.g. `sudo make template:copilot` (escaped colon target).
-template\:claude: template-check
-	$(call build_template_image,claude)
-template\:codex: template-check
-	$(call build_template_image,codex)
-template\:copilot: template-check
-	$(call build_template_image,copilot)
-
 assets:
 	./test/e2e/fetch-assets.sh
-
-# One-command wake-on-network demo. Needs root, Docker, a Cloud Hypervisor
-# binary (cloud-hypervisor or cloud-hypervisor-static) and virtiofsd.
-demo:
-	@test "$$(id -u)" -eq 0 || { echo "make demo must run as root: sudo make demo"; exit 1; }
-	./hack/demo-wake.sh
 
 # Real-VM end-to-end suite. Requires KVM, Cloud Hypervisor v54+ (or
 # cloud-hypervisor-static) and the assets from `make assets`; virtiofsd is

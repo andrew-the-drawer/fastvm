@@ -22,11 +22,9 @@ const (
 	initGuestRel  = "init"
 )
 
-// builtinInit is injected as /init when the caller does not supply an init
-// script. It is intentionally tiny and dependency-free: it mounts the pseudo
-// filesystems a guest agent needs and then hands over to the agent, falling
-// back to a shell when no agent was injected (useful for ingest tests and
-// debugging).
+// builtinInit is only a fallback for Ingest without an agent or custom init.
+// Normal images use the static agent binary as /init; it mounts pseudo
+// filesystems and volumes directly and does not rely on the guest shell.
 const builtinInit = `#!/bin/sh
 # Minimal fastvm guest init, injected by fastvm when no init script is given.
 # The agent (PID 1) inherits this PATH; without it exec.LookPath cannot resolve

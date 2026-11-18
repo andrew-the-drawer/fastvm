@@ -80,7 +80,7 @@ This step decides whether you get real CoW. Reflink must be enabled when the
 filesystem is created; it cannot be added to an ext4 filesystem later.
 
 ```sh
-sudo truncate -s 16G /var/tmp/fastvm-cow.img   # sparse backing image
+sudo truncate -s 64G /var/tmp/fastvm-cow.img   # sparse backing image
 LOOP=$(sudo losetup -f --show /var/tmp/fastvm-cow.img)
 sudo mkdir -p /tmp/fastvm-cow
 sudo mkfs.xfs -f -m reflink=1 -L fastvm-cow "$LOOP"
@@ -109,6 +109,14 @@ rm /tmp/fastvm-cow/a /tmp/fastvm-cow/b
 
 If `xfs_info` lacks `reflink=1`, or `cp --reflink=always` fails, stop: your
 kernel/xfsprogs can't do reflink (recreate the image; reflink is mkfs-time only).
+
+If you used `hack/setup-cow-fs.sh`, it creates a 64 GiB sparse image by default.
+To grow an existing mounted volume in place:
+
+```sh
+sudo ./hack/setup-cow-fs.sh resize 64G
+```
+
 
 ## Step 2 — start the daemon with `data_dir` on that mount
 
@@ -141,7 +149,7 @@ cd /path/to/fastvm
 
 sudo make image FASTVM_SOCKET="$SOCK"     # builds hack/Dockerfile.example -> demo:latest
 
-sudo bin/fastvm --socket "$SOCK" run \
+sudo bin/fastvmctl --socket "$SOCK" run \
   --image demo:latest --name cowtest --no-auto-sleep -- \
   /bin/sh -c 'while true; do sleep 5; done'
 ```
@@ -150,7 +158,7 @@ sudo bin/fastvm --socket "$SOCK" run \
 
 ```sh
 SOCK=/tmp/fastvm-cow/fastvm.sock
-ID=$(sudo bin/fastvm --socket "$SOCK" get cowtest | jq -r .id)
+ID=$(sudo bin/fastvmctl --socket "$SOCK" get cowtest | jq -r .id)
 META=/tmp/fastvm-cow/data/volumes/$ID.json
 
 sudo jq . "$META"                                 # "cow": "reflink"
@@ -185,7 +193,7 @@ Same shell as Step 4 (`$VOL`, `$BASE`, `$SOCK` still set):
 sudo sha256sum "$BASE" > /tmp/base.sha
 
 # write 64 MiB inside the guest
-sudo bin/fastvm --socket "$SOCK" exec cowtest -- /bin/sh -c \
+sudo bin/fastvmctl --socket "$SOCK" exec cowtest -- /bin/sh -c \
   'dd if=/dev/zero of=/cowtest.bin bs=1M count=64 2>/dev/null; sync'
 
 sudo du -B1 "$VOL"                 # grew by ~64 MiB
@@ -199,15 +207,15 @@ base image is untouched.
 Optional — the writes survive deep sleep/wake:
 
 ```sh
-sudo bin/fastvm --socket "$SOCK" pause cowtest --deep
-sudo bin/fastvm --socket "$SOCK" exec cowtest -- /bin/sh -c 'wc -c /cowtest.bin'
+sudo bin/fastvmctl --socket "$SOCK" pause cowtest --deep
+sudo bin/fastvmctl --socket "$SOCK" exec cowtest -- /bin/sh -c 'wc -c /cowtest.bin'
 # 67108864 (exec auto-wakes)
 ```
 
 ## Step 6 — clean up
 
 ```sh
-sudo bin/fastvm --socket /tmp/fastvm-cow/fastvm.sock rm cowtest
+sudo bin/fastvmctl --socket /tmp/fastvm-cow/fastvm.sock rm cowtest
 # stop fastvmd with Ctrl-C in terminal 1
 
 sudo umount /tmp/fastvm-cow

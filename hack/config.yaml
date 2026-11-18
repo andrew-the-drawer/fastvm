@@ -5,9 +5,6 @@
 # real deployment copy this to /etc/fastvm/config.yaml and point
 # data_dir/kernel_path/agent_path at /var/lib/fastvm/....
 #
-# hack/demo-wake.sh derives a shortened copy of this file (idle 3s / pause 2s /
-# offload 8s) so the auto-sleep wake demo stays quick.
-#
 # Relative paths are resolved from the daemon's working directory, so run
 # fastvmd from the repository root:
 #   sudo bin/fastvmd -config hack/config.yaml

@@ -1,0 +1,7 @@
+# Minimal declarative sandbox. Run with:
+#   fastvmctl run -f hack/hello.fvmfile
+version: 1
+name: hello
+image: busybox:latest
+command: ["uname", "-a"]
+no_auto_sleep: true

@@ -1,0 +1,28 @@
+# Docker-in-VM sandbox.
+#
+#   fastvmctl run -d -f hack/docker.fvmfile
+#   fastvmctl exec docker -- docker info
+#   fastvmctl exec docker -- docker run --rm --network host hello-world
+#
+# The pinned guest kernel has overlayfs and cgroups, but no iptables/bridge
+# modules. Start dockerd directly with its bridge/iptables setup disabled;
+# nested containers can use --network host. Image pulls still use the
+# sandbox's own NIC.
+version: 1
+name: docker
+image: docker:29-dind
+command:
+  - dockerd
+  - --host=unix:///var/run/docker.sock
+  - --iptables=false
+  - --ip6tables=false
+  - --bridge=none
+
+network:
+  enabled: true
+
+resources:
+  vcpus: 4
+  memory_mb: 4096
+
+no_auto_sleep: true

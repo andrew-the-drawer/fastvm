@@ -1,0 +1,27 @@
+# Codex coding-agent sandbox.
+#
+#   export OPENAI_API_KEY=...
+#   fastvmctl run -f hack/codex.fvmfile -it
+#
+# Uses the public Docker Hardened Images Codex image; ensure Docker can pull it.
+version: 1
+name: codex
+image: dhi.io/codex
+command: ["codex"]
+
+# ${NAME} values are expanded from the host environment.
+env:
+  OPENAI_API_KEY: "${OPENAI_API_KEY}"
+
+network:
+  enabled: true
+  # Optional; omit allow_hosts for unrestricted egress.
+  allow_hosts:
+    - api.openai.com
+    - auth.openai.com
+
+resources:
+  vcpus: 2
+  memory_mb: 4096
+
+no_auto_sleep: true

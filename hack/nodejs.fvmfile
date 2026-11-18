@@ -1,0 +1,15 @@
+# Node.js sandbox.
+#
+#   fastvmctl run -f hack/nodejs.fvmfile -it     # Node REPL
+#
+# The official Node image is built into a bootable disk on demand.
+version: 1
+name: nodejs
+image: node:24-alpine
+command: ["node"]
+
+resources:
+  vcpus: 2
+  memory_mb: 2048
+
+no_auto_sleep: true

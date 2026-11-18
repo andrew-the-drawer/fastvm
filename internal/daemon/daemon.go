@@ -212,6 +212,11 @@ func (d *Daemon) newRuntime(id string) *runtime {
 
 func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
 	if opts.FromCheckpoint != "" {
+		path, err := d.resolveCheckpointName(opts.FromCheckpoint)
+		if err != nil {
+			return types.Sandbox{}, err
+		}
+		opts.FromCheckpoint = path
 		return d.createFromCheckpoint(ctx, opts)
 	}
 	if strings.TrimSpace(opts.Image) == "" {

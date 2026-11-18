@@ -320,6 +320,22 @@ func TestIngestDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("static agent is the default init", func(t *testing.T) {
+		baseDir := filepath.Join(dir, "images-static-init")
+		b := newTestBuilder(t, baseDir)
+		agent := writeTestFile(t, filepath.Join(dir, "agent-static"), "static-agent-binary\n", 0o755)
+		disk, err := b.Ingest(ctx, IngestSpec{RootfsDir: root, Tag: "static:1", SizeGB: 1, AgentPath: agent})
+		if err != nil {
+			t.Fatalf("Ingest: %v", err)
+		}
+		if debugfs, ok := requireDebugfs(t); ok {
+			checkDebugfsFile(t, debugfs, disk.Path, "/init", "static-agent-binary\n", "0755")
+			checkDebugfsFile(t, debugfs, disk.Path, "/usr/local/bin/fastvm-agent", "static-agent-binary\n", "0755")
+		} else {
+			t.Log("debugfs unavailable: skipping static init verification")
+		}
+	})
+
 	t.Run("Options defaults for agent and init", func(t *testing.T) {
 		agent := writeTestFile(t, filepath.Join(dir, "agent-default"), "agent-default\n", 0o755)
 		initScript := writeTestFile(t, filepath.Join(dir, "init-default"), "init-default\n", 0o755)

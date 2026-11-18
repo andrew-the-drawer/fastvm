@@ -58,8 +58,8 @@ type Options struct {
 	// AgentPath is the default guest agent binary for specs that leave
 	// AgentPath empty. Empty disables agent injection.
 	AgentPath string
-	// InitPath is the default init script. Empty falls back to a built-in
-	// minimal init that mounts /proc, /sys and /dev and execs the agent.
+	// InitPath is an optional custom init executable. Empty uses the static
+	// agent as /init (or a minimal shell fallback when no agent is injected).
 	InitPath string
 	// DockerBin is the docker CLI to use (default "docker").
 	DockerBin string
@@ -372,11 +372,21 @@ func (b *FSBuilder) makeBaseDisk(ctx context.Context, req baseDiskRequest) (type
 			return types.BaseDisk{}, err
 		}
 	}
+	// Default to the static agent as PID 1. It mounts pseudo-filesystems with
+	// syscalls before serving, so images without a shell or mount/mdev tools
+	// (hardened/distroless images) still boot correctly. A caller-supplied
+	// init script remains supported for custom guests.
 	initData := []byte(builtinInit)
-	if initPath != "" {
+	switch {
+	case initPath != "":
 		initData, err = os.ReadFile(initPath)
 		if err != nil {
 			return types.BaseDisk{}, fmt.Errorf("image: read init script %q: %w", initPath, err)
+		}
+	case agentPath != "":
+		initData, err = os.ReadFile(agentPath)
+		if err != nil {
+			return types.BaseDisk{}, fmt.Errorf("image: read agent for /init %q: %w", agentPath, err)
 		}
 	}
 	if err := overwriteFile(filepath.Join(rootfs, initGuestRel), initData, 0o755); err != nil {

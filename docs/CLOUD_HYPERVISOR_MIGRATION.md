@@ -81,9 +81,9 @@ Design (approved):
    virtiofsd exits when the VMM disconnects, so the driver restarts it at the
    same socket path **before** a snapshot restore.
 3. The daemon encodes mounts into the kernel cmdline as
-   `fastvm.volume.<n>=<tag>:<guest_path>:<ro|rw>`; `guest/init.sh` mounts them
-   (`mount -t virtiofs fastvm<n> <guest_path>`) before exec'ing the agent, so
-   workloads and `exec` see them from the first command.
+   `fastvm.volume.<n>=<tag>:<guest_path>:<ro|rw>`; the static agent-init mounts
+   them with the `virtiofs` filesystem before serving, so workloads and `exec`
+   see them from the first command.
 4. Snapshots preserve guest mounts across dormant/wake (validated in the spike:
    host file read, guest write visible on host, restore + resume + mount again).
    `virtiofsd` is restarted before restore; no host page cache is required for
@@ -104,8 +104,9 @@ End-to-end on this host (CH v54.0, CH kernel v7.2.8, virtiofsd 1.14.0):
   guest still has its virtio-fs mount.
 - Daemon restart while Dormant adopts the sandbox, re-spawns virtiofsd, and
   resumes with the volume intact; delete stops CH + virtiofsd.
-- Image builder's built-in init (and `guest/init.sh`) both auto-mount volumes;
-  bumping `image.formatVersion` invalidates cached disks built with the old init.
+- The default static agent-init auto-mounts volumes; custom init scripts can
+  still do the same. Bumping `image.formatVersion` invalidates cached disks
+  built with the old init.
 
 ## Verified spike (before coding)
 

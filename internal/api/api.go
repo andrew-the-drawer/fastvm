@@ -375,21 +375,20 @@ func (s *Server) handleSleep(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path string `json:"path"`
+		Name string `json:"name"`
 	}
-	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	if r.ContentLength > 0 {
+		if err := decode(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
-	if req.Path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
-		return
-	}
-	if err := s.rt.Checkpoint(r.Context(), r.PathValue("ref"), req.Path); err != nil {
+	name, err := s.rt.Checkpoint(r.Context(), r.PathValue("ref"), req.Name)
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusCreated, map[string]string{"checkpoint": name})
 }
 
 func (s *Server) handleCheckpointCopy(w http.ResponseWriter, r *http.Request) {

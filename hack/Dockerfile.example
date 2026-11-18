@@ -8,7 +8,7 @@
 #
 #   make image
 #   # or directly:
-#   bin/fastvm --socket /run/fastvm/fastvm.sock image build -f hack/Dockerfile.example \
+#   bin/fastvmctl --socket /run/fastvm/fastvm.sock image build -f hack/Dockerfile.example \
 #     -t demo:latest hack
 #
 # busybox:latest is tiny (fits comfortably in the default 8 GiB sparse disk)

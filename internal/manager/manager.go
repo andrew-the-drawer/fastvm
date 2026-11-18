@@ -27,8 +27,9 @@ type CreateOptions struct {
 	// NIC/TAP at all.
 	NetworkEnabled *bool
 	AllowHosts     []string
-	// FromCheckpoint restores a sandbox from a checkpoint directory. When set,
-	// Image is ignored and the checkpoint manifest supplies the base image.
+	// FromCheckpoint names a checkpoint under the daemon's data directory.
+	// When set, Image is ignored and the checkpoint manifest supplies the base
+	// image.
 	FromCheckpoint string
 }
 
@@ -36,7 +37,7 @@ type CreateOptions struct {
 type Runtime interface {
 	Create(ctx context.Context, opts CreateOptions) (types.Sandbox, error)
 	Start(ctx context.Context, ref string) error
-	Checkpoint(ctx context.Context, ref, outDir string) error
+	Checkpoint(ctx context.Context, ref, name string) (string, error)
 	CheckpointCopy(ctx context.Context, from, name string) (types.Sandbox, error)
 	Get(ctx context.Context, ref string) (types.Sandbox, error)
 	Stats(ctx context.Context, ref string) (types.SandboxStats, error)

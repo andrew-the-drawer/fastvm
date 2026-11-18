@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -144,7 +143,7 @@ func (o *networkOptions) validate(cmdName string) error {
 }
 
 func newRunCmd() *cobra.Command {
-	var image, name string
+	var image, name, file string
 	var vcpus, memory int
 	var publishes, envs, volumes []string
 	var detach, noStart bool
@@ -152,7 +151,8 @@ func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [flags] -- <command> [args...]",
 		Short: "Create, boot, or start a sandbox",
-		Long: `Create and boot a sandbox from an image, or boot an already-created one.
+		Long: `Create and boot a sandbox from an image or an .fvmfile, or boot an
+already-created sandbox.
 
 The image reference is built into a base disk on demand if it is not already in
 the image store. Pass the guest command after -- so its own flags are not parsed
@@ -165,55 +165,87 @@ create without booting, then resume it later. A run with no command leaves the
 sandbox running and prints its ID/state/name.`,
 		Example: `  fastvmctl run --net --image alpine -- uname -a
   fastvmctl run --net -it --image alpine -- /bin/sh
+  fastvmctl run -f hack/codex.fvmfile
   fastvmctl run --image alpine --name agent --no-start
   fastvmctl run --name agent`,
 		Args: cobra.ArbitraryArgs,
-		RunE: func(_ *cobra.Command, cmdArgs []string) error {
-			if err := opts.validate("run"); err != nil {
-				return err
-			}
+		RunE: func(cobraCmd *cobra.Command, cmdArgs []string) error {
 			if detach && (opts.interactive || opts.tty) {
 				return errors.New("--detach and --interactive/--tty are mutually exclusive")
 			}
 			if noStart && (detach || opts.interactive || opts.tty || len(cmdArgs) > 0) {
 				return errors.New("--no-start cannot be combined with a command, -d, -i, or -t")
 			}
-			if image == "" {
+
+			runArgs := append([]string(nil), cmdArgs...)
+			var ports []types.PortMapping
+			var env map[string]string
+			var vols []types.Volume
+			noAutoSleep := false
+
+			if file != "" {
+				for _, flagName := range []string{"image", "vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "no-auto-sleep"} {
+					if cobraCmd.Flags().Changed(flagName) {
+						return fmt.Errorf("--%s cannot be combined with --file", flagName)
+					}
+				}
+				spec, err := LoadFVMFile(file)
+				if err != nil {
+					return err
+				}
+				image = spec.Image
 				if name == "" {
-					return errors.New("--image or --name is required")
+					name = spec.Name
 				}
-				if noStart {
-					return errors.New("--no-start requires --image")
+				vcpus, memory = spec.VCPUs, spec.MemoryMB
+				ports, env, vols = spec.Ports, spec.Env, spec.Volumes
+				opts.net, opts.noNet, opts.allowHosts = spec.NetworkEnabled, false, spec.AllowHosts
+				noAutoSleep = spec.NoAutoSleep
+				if len(runArgs) == 0 {
+					runArgs = spec.Command
 				}
-				if len(cmdArgs) > 0 || detach || opts.interactive || opts.tty {
-					return errors.New("booting an existing sandbox does not take a command or -d/-i/-t")
+			} else {
+				if err := opts.validate("run"); err != nil {
+					return err
 				}
-				return resumeSandbox(name)
+				if image == "" {
+					if name == "" {
+						return errors.New("--image, --file, or --name is required")
+					}
+					if noStart {
+						return errors.New("--no-start requires --image or --file")
+					}
+					if len(cmdArgs) > 0 || detach || opts.interactive || opts.tty {
+						return errors.New("booting an existing sandbox does not take a command or -d/-i/-t")
+					}
+					return resumeSandbox(name)
+				}
+				var err error
+				if ports, err = parsePublishes(publishes); err != nil {
+					return err
+				}
+				if env, err = parseEnvs(envs); err != nil {
+					return err
+				}
+				if vols, err = parseVolumes(volumes); err != nil {
+					return err
+				}
+				noAutoSleep = opts.noAutoSleep
 			}
+
 			if err := ensureImage(image); err != nil {
 				return err
 			}
-			ports, err := parsePublishes(publishes)
-			if err != nil {
-				return err
-			}
-			env, err := parseEnvs(envs)
-			if err != nil {
-				return err
-			}
-			vols, err := parseVolumes(volumes)
-			if err != nil {
-				return err
-			}
+
 			workload := []string(nil)
 			if detach {
-				workload = cmdArgs
+				workload = runArgs
 			}
 			body := map[string]any{
 				"name": name, "image": image,
 				"vcpus": vcpus, "memory_mb": memory,
 				"ports": ports, "volumes": vols, "cmd": workload, "env": env,
-				"no_auto_sleep": opts.noAutoSleep, "start": !noStart,
+				"no_auto_sleep": noAutoSleep, "start": !noStart,
 				"network_enabled": opts.enabled(), "allow_hosts": opts.allowHosts,
 			}
 			var sb types.Sandbox
@@ -225,23 +257,23 @@ sandbox running and prints its ID/state/name.`,
 				return nil
 			}
 			if opts.interactive || opts.tty {
-				argv := cmdArgs
+				argv := runArgs
 				if len(argv) == 0 {
 					argv = []string{"/bin/sh"}
 				}
 				return removeAfterRun(sb.ID, runShell(sb.ID, argv))
 			}
-			if len(cmdArgs) > 0 {
-				return removeAfterRun(sb.ID, execSandbox(sb.ID, cmdArgs, env))
+			if len(runArgs) > 0 {
+				return removeAfterRun(sb.ID, execSandbox(sb.ID, runArgs, env))
 			}
-			// No foreground process to wait for; keep the sandbox and print it.
 			fmt.Printf("%s\t%s\t%s\n", sb.ID, sb.State, sb.Name)
 			return nil
 		},
 	}
 	f := cmd.Flags()
+	f.StringVarP(&file, "file", "f", "", "load sandbox config from an .fvmfile")
 	f.StringVar(&image, "image", "", "Docker image or base disk tag/digest")
-	f.StringVar(&name, "name", "", "sandbox name or ID (boot it if no image is given)")
+	f.StringVar(&name, "name", "", "sandbox name or ID (boot it if no image/file is given)")
 	f.IntVar(&vcpus, "vcpus", 0, "vCPUs (0 = default)")
 	f.IntVar(&memory, "memory", 0, "memory MiB (0 = default)")
 	f.StringArrayVar(&publishes, "publish", nil, "publish a port host:guest[/tcp|udp]")
@@ -261,7 +293,10 @@ func newCheckpointCmd() *cobra.Command {
 		Short: "Save, copy, or restore checkpoints",
 		Long: `Checkpoints capture a sandbox's RAM, CPU state, and writable disk.
 
-  save    export a checkpoint to a directory
+Saved checkpoints live under the daemon data directory (<data_dir>/checkpoints),
+so disks can be reflinked from the same filesystem.
+
+  save    export a checkpoint by name
   copy    create a live child from a running sandbox
   restore restore a saved checkpoint as a new running sandbox`,
 	}
@@ -270,34 +305,30 @@ func newCheckpointCmd() *cobra.Command {
 }
 
 func newCheckpointSaveCmd() *cobra.Command {
-	var name, output string
+	var name string
 	cmd := &cobra.Command{
-		Use:   "save --name <sandbox> -o <dir>",
+		Use:   "save --name <sandbox>",
 		Short: "Export a running sandbox checkpoint",
 		Long: `Pause the sandbox briefly, write its CH memory/CPU snapshot and writable
-disk to a directory, then resume it.`,
+disk under the daemon data directory, then resume it. The daemon generates a
+checkpoint name from the sandbox name and timestamp and prints it.`,
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			if name == "" {
 				return errors.New("--name is required")
 			}
-			if output == "" {
-				return errors.New("--output is required")
-			}
-			abs, err := filepath.Abs(output)
-			if err != nil {
-				return err
+			var resp struct {
+				Checkpoint string `json:"checkpoint"`
 			}
 			if err := do(http.MethodPost, "/v1/sandboxes/"+url.PathEscape(name)+"/checkpoint",
-				map[string]any{"path": abs}, nil); err != nil {
+				map[string]any{}, &resp); err != nil {
 				return err
 			}
-			fmt.Printf("checkpoint\t%s\n", abs)
+			fmt.Println(resp.Checkpoint)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "sandbox name or ID")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "output checkpoint directory")
 	return cmd
 }
 
@@ -330,19 +361,15 @@ with its own disk/network identity, then resume the source.`,
 func newCheckpointRestoreCmd() *cobra.Command {
 	var from, name string
 	cmd := &cobra.Command{
-		Use:   "restore --from <dir> --name <sandbox>",
+		Use:   "restore --from <checkpoint> --name <sandbox>",
 		Short: "Restore a saved checkpoint as a running sandbox",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			if from == "" || name == "" {
 				return errors.New("--from and --name are required")
 			}
-			abs, err := filepath.Abs(from)
-			if err != nil {
-				return err
-			}
 			body := map[string]any{
-				"name": name, "from_checkpoint": abs,
+				"name": name, "from_checkpoint": from,
 				"start": true,
 			}
 			var sb types.Sandbox
@@ -353,7 +380,7 @@ func newCheckpointRestoreCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&from, "from", "", "checkpoint directory")
+	cmd.Flags().StringVar(&from, "from", "", "checkpoint name under <data_dir>/checkpoints")
 	cmd.Flags().StringVar(&name, "name", "", "new sandbox name")
 	return cmd
 }
@@ -617,47 +644,4 @@ func newVersionCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// --- template ---------------------------------------------------------------
-
-func newTemplateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "template",
-		Short: "Coding-agent templates",
-	}
-	cmd.AddCommand(newTemplateListCmd(), newTemplateStartCmd())
-	return cmd
-}
-
-func newTemplateListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List baked-in templates",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return cmdTemplateList()
-		},
-	}
-}
-
-func newTemplateStartCmd() *cobra.Command {
-	var opts templateStartOptions
-	var envs []string
-	cmd := &cobra.Command{
-		Use:   "start <name>",
-		Short: "Boot a sandbox from a template",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			opts.Envs = envs
-			return templateStart(args[0], opts)
-		},
-	}
-	cmd.Flags().BoolVarP(&opts.Detached, "detach", "d", false, "print only the sandbox name")
-	cmd.Flags().StringVar(&opts.Name, "name", "", "sandbox name (default: <template>-<random>)")
-	cmd.Flags().StringArrayVar(&envs, "env", nil, "workload env K=V")
-	cmd.Flags().IntVar(&opts.VCPUs, "vcpus", 0, "vCPUs (0 = template default)")
-	cmd.Flags().IntVar(&opts.MemoryMB, "memory", 0, "memory MiB (0 = template default)")
-	cmd.Flags().BoolVar(&opts.NoAutoSleep, "no-auto-sleep", false, "never auto-sleep")
-	return cmd
 }
