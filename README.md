@@ -13,50 +13,16 @@ virtio-fs.
 
 ## Features
 
-- **~0.6 s cold boots.** One [Cloud Hypervisor](https://www.cloudhypervisor.org/)
-  microVM per sandbox, KVM-backed (boot to guest-agent-ready, measured on the
-  reference host; see the [migration notes](docs/CLOUD_HYPERVISOR_MIGRATION.md)
-  for why the old Firecracker "~100 ms" number no longer applies).
-- **`fastvmctl`, built for the terminal.** Cobra + Fang command tree with styled
-  help/errors, shell completion, and `--version`. One `run` command creates,
-  boots, and executes; foreground runs clean up on exit, while `-d`/`--no-start`
-  keep the sandbox. `resume` boots Created sandboxes and wakes Paused/Dormant
-  ones. `rm` accepts multiple names.
-- **Self-managed lifecycle.** Idle detection → pause (vCPUs halted, RAM
-  resident) → dormant (RAM offloaded to a file-backed snapshot) → destroy.
-- **Wake on network.** A packet arriving for a sleeping sandbox wakes it, with
-  the frame already queued in the guest's RX path. `curl` a dormant VM and it
-  answers.
-- **On-demand images with progress.** `run --image alpine` builds and caches a
-  bootable base disk automatically, showing a Bubbles spinner; `image build`
-  remains available for explicit Dockerfile builds. Runtime disks are reflink
-  CoW clones with a sparse-copy fallback.
-- **Explicit network policy.** `--net`/`--no-net` choose whether a guest gets a
-  NIC. `--allow-host` resolves hostnames into an nftables egress allowlist;
-  blocked TCP connections get an immediate RST instead of a long timeout
-  (bridge mode; eBPF mode rejects allowlisted sandboxes).
-- **Checkpoints and live copies.** `checkpoint save` captures RAM, CPU state,
-  and the writable disk; `checkpoint restore` boots a copy elsewhere;
-  `checkpoint copy` creates a running child with its own disk, IP, and hostname.
-  No separate branching mode is required.
-- **eBPF L2 switch** by default: tc redirect between TAPs and the uplink,
-  sandbox isolation, MAC/IP anti-spoofing, ringbuf wake events — with an
-  automatic Linux-bridge + AF_PACKET fallback.
-- **Host-directory volumes over virtio-fs.** Allowlisted host paths can be
-  mounted at guest paths read-only or read-write (`--volume host:guest[:ro]`,
-  `volumes` in the API); virtiofsd serves them and they survive pause/dormant
-  wake. Host mounts are denied unless enabled in `volumes.allowed_host_prefixes`.
-- **exec over virtio-vsock**, detached workloads, and an interactive PTY shell
-  with resize and exit-code propagation.
-- **Published ports** with nftables DNAT, including `curl 127.0.0.1:<port>`.
-- **Baked-in coding-agent templates**: `fastvmctl template start claude|codex|copilot`.
-- **Docker-style guest identity** on every boot (`/etc/hostname`, `/etc/hosts`,
-  `/etc/resolv.conf` with host resolvers mirrored).
-- **HTTP/JSON API**, event log, sandbox introspection, and graceful
-  daemon-restart adoption of active sandboxes.
-- **Web console** (`console/`): Keycloak OIDC sign-in, a live sandbox table with
-  per-VM CPU/memory utilization, lifecycle actions, and an interactive exec
-  terminal.
+- **Fast microVMs.** Cloud Hypervisor/KVM sandboxes boot to agent-ready in ~0.6 s.
+- **Disposable or persistent.** `run` builds, boots, runs, and removes on exit;
+  `-d` keeps it, and `resume` boots/wakes it later.
+- **Self-managing.** Idle → pause → dormant RAM snapshot → wake on network.
+- **On-demand images.** First use of a Docker image builds and caches a bootable
+  disk, with a Bubbles progress spinner.
+- **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
+- **Checkpoints.** Save RAM/CPU/disk, restore a copy, or make a live copy.
+- **Volumes and ports.** virtio-fs host mounts and nftables published ports.
+- **Templates and console.** Coding-agent templates and the OIDC web console.
 
 ## Try it
 
