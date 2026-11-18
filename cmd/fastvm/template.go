@@ -3,8 +3,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,35 +14,6 @@ import (
 	tpl "fastvm/internal/template"
 	"fastvm/internal/types"
 )
-
-// cmdTemplate implements `fastvm template list|start`.
-func cmdTemplate(args []string) error {
-	if len(args) == 0 {
-		templateUsage()
-		return nil
-	}
-	switch args[0] {
-	case "list":
-		return cmdTemplateList()
-	case "start":
-		return cmdTemplateStart(args[1:])
-	case "help", "-h", "--help":
-		templateUsage()
-		return nil
-	default:
-		templateUsage()
-		return fmt.Errorf("template: unknown subcommand %q", args[0])
-	}
-}
-
-func templateUsage() {
-	fmt.Fprint(os.Stderr, `template <subcommand>
-
-  list      list baked-in coding-agent templates
-  start <name> [-d] [--name NAME] [--env K=V ...] [--vcpus N] [--memory MiB]
-                  boot a sandbox from a template; -d prints only its name
-`)
-}
 
 func cmdTemplateList() error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -69,72 +38,8 @@ type templateStartOptions struct {
 // splitTemplateArgs separates the template name from flags so the name may
 // appear before or after flags: `template start copilot -d` and
 // `template start -d copilot` both work.
-func splitTemplateArgs(args []string) (string, []string, error) {
-	valueFlags := map[string]bool{
-		"-name": true, "--name": true,
-		"-env": true, "--env": true,
-		"-vcpus": true, "--vcpus": true,
-		"-memory": true, "--memory": true,
-	}
-	var name string
-	var flagArgs []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			return "", nil, errors.New("template start: unexpected --")
-		}
-		if strings.HasPrefix(a, "-") && a != "-" {
-			flagArgs = append(flagArgs, a)
-			if valueFlags[a] {
-				if i+1 >= len(args) {
-					return "", nil, fmt.Errorf("template start: flag %s needs a value", a)
-				}
-				flagArgs = append(flagArgs, args[i+1])
-				i++
-			}
-			continue
-		}
-		if name != "" {
-			return "", nil, fmt.Errorf("template start: unexpected argument %q", a)
-		}
-		name = a
-	}
-	return name, flagArgs, nil
-}
-
-func parseTemplateStart(args []string) (string, templateStartOptions, error) {
-	name, flagArgs, err := splitTemplateArgs(args)
-	if err != nil {
-		return "", templateStartOptions{}, err
-	}
-	var opts templateStartOptions
-	fs := flag.NewFlagSet("template start", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.BoolVar(&opts.Detached, "d", false, "print only the sandbox name")
-	fs.BoolVar(&opts.Detached, "detach", false, "print only the sandbox name")
-	fs.StringVar(&opts.Name, "name", "", "sandbox name (default: <template>-<random>)")
-	var envs multiFlag
-	fs.Var(&envs, "env", "workload env K=V (repeatable)")
-	fs.IntVar(&opts.VCPUs, "vcpus", 0, "vCPUs (0 = template default)")
-	fs.IntVar(&opts.MemoryMB, "memory", 0, "memory MiB (0 = template default)")
-	fs.BoolVar(&opts.NoAutoSleep, "no-auto-sleep", false, "never auto-sleep")
-	if err := fs.Parse(flagArgs); err != nil {
-		return "", opts, err
-	}
-	opts.Envs = envs
-	return name, opts, nil
-}
-
-func cmdTemplateStart(args []string) error {
-	templateName, opts, err := parseTemplateStart(args)
-	if errors.Is(err, flag.ErrHelp) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
+func templateStart(templateName string, opts templateStartOptions) error {
 	if templateName == "" {
-		templateUsage()
 		names := make([]string, 0)
 		for _, t := range tpl.List() {
 			names = append(names, t.Name)

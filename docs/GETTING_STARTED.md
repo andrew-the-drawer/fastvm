@@ -78,7 +78,7 @@ Start the daemon as root (it runs in the foreground; `Ctrl-C` stops it):
 
 ```sh
 make build                 # once, as your user
-sudo make start            # runs bin/fastvmd -config hack/config.yaml
+sudo make start            # runs bin/fastvmd --config hack/config.yaml
 ```
 
 Or, in a root shell, the equivalent:
@@ -86,7 +86,7 @@ Or, in a root shell, the equivalent:
 ```sh
 sudo -s
 cd /path/to/fastvm
-bin/fastvmd -config hack/config.yaml
+bin/fastvmd --config hack/config.yaml
 ```
 
 What happens:
@@ -125,11 +125,11 @@ bin/fastvm version
 
 The build identity is injected by `make build` from `git describe --tags
 --always` (plus `-dirty` when the worktree has changes) and is also served by
-`GET /v1/version`. `bin/fastvm --version` and `bin/fastvmd -version` print only
+`GET /v1/version`. `bin/fastvm --version` and `bin/fastvmd --version` print only
 that binary's build identity; `fastvm version` prints the CLI and daemon
 versions together. Plain `go build` falls back to the VCS revision Go embeds.
 
-Every command also accepts `-socket /path/fastvm.sock` **before** the
+Every command also accepts `--socket /path/fastvm.sock` **before** the
 subcommand.
 
 ---
@@ -151,7 +151,7 @@ bin/fastvm image ls
 # demo:latest  sha256:...    8192 MiB  dockerfile
 ```
 
-`make image` runs `bin/fastvm -socket /run/fastvm/fastvm.sock image build -f
+`make image` runs `bin/fastvm --socket /run/fastvm/fastvm.sock image build -f
 hack/Dockerfile.example -t demo:latest hack` (override with
 `make image FASTVM_SOCKET=/path/to/fastvm.sock`). Use any Dockerfile/context
 directly the same way:
@@ -165,7 +165,7 @@ tag), exports the container rootfs, injects the guest agent + init, and creates
 a **content-addressed ext4 base disk** in `$DATA_DIR/images/`. Identical inputs
 hit the cache; the base disk is read-only and shared by sandboxes.
 
-Optional flag: `-size-gb N` (base disk size, default 8 GiB). Remove an image
+Optional flag: `--size-gb N` (base disk size, default 8 GiB). Remove an image
 once no sandbox references it; `--force` overrides the reference check and
 deletes the disk plus every tag pointing at its digest:
 
@@ -190,7 +190,7 @@ curl --unix-socket /run/fastvm/fastvm.sock -X POST \
 ### Boot a sandbox
 
 ```sh
-bin/fastvm run \
+bin/fastvm run -d \
   --image demo:latest \
   --name demo \
   --no-auto-sleep \
@@ -203,7 +203,9 @@ bin/fastvm ls
 ```
 
 `run` boots a real Cloud Hypervisor microVM, waits for the guest agent over
-virtio-vsock, then starts the command after `--` as a detached workload.
+virtio-vsock, then runs the command after `--`. By default it waits and streams
+stdout/stderr; use `-d/--detach` to start it as a background workload and print
+only the sandbox ID/state/name.
 `--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`,
 `--volume host:guest[:ro]` (repeatable), and `--no-auto-sleep` are available.
 
@@ -221,7 +223,7 @@ volumes:
 
 ```sh
 mkdir -p /tmp/fastvm-share && echo hello > /tmp/fastvm-share/host.txt
-bin/fastvm run --image demo:latest --name shared \
+bin/fastvm run -d --image demo:latest --name shared \
   --volume /tmp/fastvm-share:/mnt/share:ro -- /bin/sleep 3600
 
 bin/fastvm exec shared -- cat /mnt/share/host.txt   # hello
@@ -262,13 +264,13 @@ from the templates interactively).
 ```sh
 bin/fastvm pause demo --deep      # Running -> Paused -> Dormant
 sleep 0.5
-bin/fastvm get demo | grep -E '"state"|"wake_count"|"snapshot_dir"'
+bin/fastvmctl get demo | grep -E '"state"|"wake_count"|"snapshot_dir"'
 # "state": "Dormant"
 # "snapshot_dir": "/tmp/fastvm-demo-data/sandboxes/<id>/memory"
 # "wake_count": 0
 
 bin/fastvm resume demo
-bin/fastvm get demo | grep -E '"state"|"wake_count"'
+bin/fastvmctl get demo | grep -E '"state"|"wake_count"'
 # "state": "Running"
 # "wake_count": 1
 ```
@@ -385,7 +387,7 @@ With the daemon from §3 running, run a tiny HTTP server in the guest and publis
 it on host port 8080:
 
 ```sh
-bin/fastvm run --image demo:latest --name web --publish 8080:80 -- \
+bin/fastvm run -d --image demo:latest --name web --publish 8080:80 -- \
   /bin/sh -c 'echo hello from a sleeping VM > /tmp/index.html;
               exec /bin/busybox httpd -f -p 0.0.0.0:80 -h /tmp'
 ```
@@ -395,13 +397,13 @@ bin/fastvm run --image demo:latest --name web --publish 8080:80 -- \
 
 Wait for auto-sleep, or force it with `fastvm pause web --deep`. With
 `hack/config.yaml` the automatic windows are 60 s idle → 10 min pause → 30 min
-dormant; the demo script shortens them to 3 s → 2 s → 8 s. `fastvm get web`
+dormant; the demo script shortens them to 3 s → 2 s → 8 s. `fastvmctl get web`
 shows `Paused` then `Dormant`:
 
 ```sh
-fastvm get web | grep state      # "state": "Dormant"
+fastvmctl get web | grep state      # "state": "Dormant"
 curl http://127.0.0.1:8080/      # hello from a sleeping VM
-fastvm get web | grep -E 'state|wake_count'
+fastvmctl get web | grep -E 'state|wake_count'
 # "state": "Running"
 # "wake_count": 1
 ```
@@ -419,7 +421,7 @@ FASTVM_E2E=1 go test ./test/e2e/ -run TestDaemonNetworkWakeRealVM -v
 
 `hack/config.yaml` is only a demo profile. For a real deployment copy it to
 `/etc/fastvm/config.yaml` and point `data_dir`/`kernel_path`/`agent_path` at
-`/var/lib/fastvm`, then start `fastvmd -config /etc/fastvm/config.yaml` from a
+`/var/lib/fastvm`, then start `fastvmd --config /etc/fastvm/config.yaml` from a
 systemd unit (or any service manager) as root.
 
 ---
@@ -427,10 +429,10 @@ systemd unit (or any service manager) as root.
 ## 7. CLI reference
 
 ```text
-fastvm [-socket PATH] <command> [flags]
+fastvmctl [--socket PATH] <command> [flags]
 
 version                                     daemon version
-image build [-f Dockerfile] [-t tag] [-size-gb N] [context]  base disk from Dockerfile
+image build [-f Dockerfile] [-t tag] [--size-gb N] [context]  base disk from Dockerfile
 image ls                                    list cached base disks
 image rm [--force] <tag|digest>...          delete images and their tags
 run    --image <tag|digest> [flags] -- <cmd...>          create a sandbox
@@ -450,9 +452,9 @@ events [-n N]                               recent lifecycle events
 ```
 
 Sandboxes are addressable by full ID, full name, or any unique ID prefix
-(Docker-style) — e.g. `fastvm get web`, `fastvm get 128e1f980d2c`, or
-`fastvm exec 128e1f -- ...`. An ambiguous prefix returns an error listing the
-matching IDs. `FASTVM_SOCKET` or `-socket` selects the daemon socket. The demo
+(Docker-style) — e.g. `fastvmctl get web`, `fastvmctl get 128e1f980d2c`, or
+`fastvmctl exec 128e1f -- ...`. An ambiguous prefix returns an error listing the
+matching IDs. `FASTVM_SOCKET` or `--socket` selects the daemon socket. The demo
 config puts it at `/run/fastvm/fastvm.sock`.
 
 ---
@@ -479,8 +481,8 @@ just because its CPU is low.
 
 ## 9. Configuration
 
-`fastvmd -config hack/config.yaml` (what `make start` uses); CLI flags override (`-socket`, `-data-dir`,
-`-kernel`, `-agent`, `-log-level`). The checked-in demo config is the quickest
+`fastvmd --config hack/config.yaml` (what `make start` uses); CLI flags override (`--socket`, `--data-dir`,
+`--kernel`, `--agent`, `--log-level`). The checked-in demo config is the quickest
 starting point; full schema is in `internal/config/config.go`.
 
 | Key | Demo value | Meaning |
@@ -573,7 +575,7 @@ fallback and uses the Linux bridge.
 
 | Symptom | Fix |
 |---|---|
-| `cannot reach fastvmd at ...` | Wrong socket. Export `FASTVM_SOCKET` or pass `-socket` before the subcommand; check the daemon is running. The demo config uses `/run/fastvm/fastvm.sock`. |
+| `cannot reach fastvmd at ...` | Wrong socket. Export `FASTVM_SOCKET` or pass `--socket` before the subcommand; check the daemon is running. The demo config uses `/run/fastvm/fastvm.sock`. |
 | `permission denied` on the socket | The daemon created it as root with mode 0600; run the CLI as root too (same root shell) or run the daemon as the user that will use it. |
 | `operation not permitted` creating TAP/bridge/nft | The daemon needs `CAP_NET_ADMIN`: run `fastvmd` as root. |
 | `cloud-hypervisor: executable file not found in $PATH` | Install Cloud Hypervisor v54+ (or `cloud-hypervisor-static`) and make sure it is on the daemon's `PATH`, or set `vmm.binary` / `FASTVM_CLOUD_HYPERVISOR` to its absolute path. |

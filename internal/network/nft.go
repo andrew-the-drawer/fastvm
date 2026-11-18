@@ -22,6 +22,13 @@ const nftTable = "fastvm"
 var nftNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,32}$`)
 
 // nftMapping is one rendered published-port DNAT rule.
+// nftEgress is one sandbox's egress allowlist (resolved IPv4 addresses).
+// A non-nil empty slice means "deny all egress" (only DNS/established allowed).
+type nftEgress struct {
+	GuestIP string
+	Hosts   []string
+}
+
 type nftMapping struct {
 	GuestIP   string
 	HostPort  int
@@ -36,6 +43,7 @@ type nftSpec struct {
 	CIDR     string
 	Uplink   string
 	Mappings []nftMapping
+	Egress   []nftEgress
 }
 
 // renderNftables returns the nft rule file body, or "" when there is nothing
@@ -83,12 +91,37 @@ func renderNftables(spec nftSpec) (string, error) {
 	// Host-local published ports (curl 127.0.0.1:<port>) need hairpin SNAT so
 	// the guest replies to the bridge gateway rather than to 127.0.0.1.
 	hasHairpin := len(mappings) > 0 && spec.Bridge != ""
-	if len(mappings) == 0 && !hasMasquerade {
+	egress := append([]nftEgress(nil), spec.Egress...)
+	sort.Slice(egress, func(i, j int) bool { return egress[i].GuestIP < egress[j].GuestIP })
+	for i := range egress {
+		ip, err := validateIPv4(egress[i].GuestIP)
+		if err != nil {
+			return "", err
+		}
+		egress[i].GuestIP = ip
+		hosts := append([]string(nil), egress[i].Hosts...)
+		sort.Strings(hosts)
+		egress[i].Hosts = hosts
+		for _, host := range hosts {
+			if _, err := validateIPv4(host); err != nil {
+				return "", err
+			}
+		}
+	}
+	hasEgress := len(egress) > 0
+	if len(mappings) == 0 && !hasMasquerade && !hasEgress {
 		return "", nil
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "table ip %s {\n", spec.Table)
+	for i, policy := range egress {
+		fmt.Fprintf(&b, "\tset egress%d {\n\t\ttype ipv4_addr\n", i)
+		if len(policy.Hosts) > 0 {
+			fmt.Fprintf(&b, "\t\telements = { %s }\n", strings.Join(policy.Hosts, ", "))
+		}
+		b.WriteString("\t}\n")
+	}
 	if len(mappings) > 0 {
 		// Validate and render each mapping once, then emit the same rules into
 		// the prerouting (external) and output (host-local) hooks.
@@ -141,6 +174,22 @@ func renderNftables(spec nftSpec) (string, error) {
 		}
 		if hasHairpin {
 			fmt.Fprintf(&b, "\t\tip saddr 127.0.0.1 oifname %q masquerade\n", spec.Bridge)
+		}
+		b.WriteString("\t}\n")
+	}
+	if hasEgress {
+		b.WriteString("\tchain forward {\n")
+		b.WriteString("\t\ttype filter hook forward priority filter; policy accept;\n")
+		b.WriteString("\t\tct state established,related accept\n")
+		for i, policy := range egress {
+			fmt.Fprintf(&b, "\t\tip saddr %s udp dport 53 accept\n", policy.GuestIP)
+			fmt.Fprintf(&b, "\t\tip saddr %s tcp dport 53 accept\n", policy.GuestIP)
+			fmt.Fprintf(&b, "\t\tip saddr %s ip daddr @egress%d accept\n", policy.GuestIP, i)
+			// Reject rather than silently drop: blocked TCP connects get an
+			// immediate RST instead of hanging until the guest's connect
+			// timeout (wget/curl fail fast). Non-TCP gets ICMP unreachable.
+			fmt.Fprintf(&b, "\t\tip saddr %s meta l4proto tcp reject with tcp reset\n", policy.GuestIP)
+			fmt.Fprintf(&b, "\t\tip saddr %s reject\n", policy.GuestIP)
 		}
 		b.WriteString("\t}\n")
 	}

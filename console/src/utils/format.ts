@@ -168,6 +168,11 @@ export interface SandboxStateMeta {
 }
 
 const SANDBOX_STATE_META: Record<SandboxState, SandboxStateMeta> = {
+  Created: {
+    label: "Created",
+    description: "The sandbox is defined and stopped; start it when needed.",
+    tone: "stopped",
+  },
   Creating: {
     label: "Creating",
     description: "The base disk is being cloned into a fresh writable volume.",

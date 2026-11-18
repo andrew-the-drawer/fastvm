@@ -36,6 +36,7 @@ export interface VmTableProps {
 const PAGE_SIZE = 10;
 
 const STATE_FILTERS: readonly SandboxState[] = [
+  "Created",
   "Creating",
   "Starting",
   "Running",

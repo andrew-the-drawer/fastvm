@@ -8,6 +8,7 @@ type State string
 
 const (
 	StateCreating State = "Creating"
+	StateCreated  State = "Created"
 	StateStarting State = "Starting"
 	StateRunning  State = "Running"
 	StateIdle     State = "Idle"
@@ -45,16 +46,18 @@ type BaseDisk struct {
 
 // Sandbox is the persisted record for one microVM.
 type Sandbox struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	BaseDisk    string        `json:"base_disk"` // digest
-	VolumePath  string        `json:"volume_path"`
-	VCPUs       int           `json:"vcpus"`
-	MemoryMB    int           `json:"memory_mb"`
-	State       State         `json:"state"`
-	NoAutoSleep bool          `json:"no_auto_sleep"`
-	Ports       []PortMapping `json:"ports,omitempty"`
-	Volumes     []Volume      `json:"volumes,omitempty"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	BaseDisk       string        `json:"base_disk"` // digest
+	VolumePath     string        `json:"volume_path"`
+	VCPUs          int           `json:"vcpus"`
+	MemoryMB       int           `json:"memory_mb"`
+	State          State         `json:"state"`
+	NoAutoSleep    bool          `json:"no_auto_sleep"`
+	NetworkEnabled bool          `json:"network_enabled"`
+	AllowHosts     []string      `json:"allow_hosts,omitempty"`
+	Ports          []PortMapping `json:"ports,omitempty"`
+	Volumes        []Volume      `json:"volumes,omitempty"`
 
 	// Network allocation.
 	NetnsPath string `json:"netns_path,omitempty"`

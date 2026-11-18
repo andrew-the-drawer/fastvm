@@ -76,7 +76,7 @@ trap cleanup EXIT
 echo "== starting fastvmd with hack/config.yaml (shortened auto-sleep: 3s/2s/8s) =="
 echo "   cloud hypervisor: $CH_BIN"
 echo "   virtiofsd: $VIRTIOFSD_BIN"
-bin/fastvmd -config "$DEMO_CONFIG" -data-dir "$DATA_DIR" -socket "$SOCKET" -log-level info > "$LOG" 2>&1 &
+bin/fastvmd --config "$DEMO_CONFIG" --data-dir "$DATA_DIR" --socket "$SOCKET" --log-level info > "$LOG" 2>&1 &
 DAEMON=$!
 for _ in $(seq 1 100); do [[ -S "$SOCKET" ]] && break; sleep 0.1; done
 if [[ ! -S "$SOCKET" ]]; then
@@ -92,7 +92,7 @@ bin/fastvm image build -f "$ROOT/hack/Dockerfile.example" -t demo:latest "$ROOT/
 
 echo
 echo "== 2. boot a sandbox and publish port 8080 -> guest 80 =="
-bin/fastvm run --image demo:latest --name web --publish 8080:80 -- \
+bin/fastvm run -d --image demo:latest --name web --publish 8080:80 -- \
   /bin/sh -c "echo hello-from-sleeping-vm > /tmp/index.html; exec /bin/busybox httpd -f -p 0.0.0.0:80 -h /tmp"
 
 echo

@@ -146,3 +146,63 @@ func TestNftMappings(t *testing.T) {
 		t.Errorf("unexpected mapping order/IPs: %+v", got)
 	}
 }
+
+func TestRenderNftablesEgressAllowlist(t *testing.T) {
+	body, err := renderNftables(nftSpec{
+		Table:  "fastvm",
+		Bridge: "fastvm0",
+		CIDR:   "10.77.0.0/16",
+		Uplink: "eth0",
+		Egress: []nftEgress{
+			{GuestIP: "10.77.0.2", Hosts: []string{"104.16.0.1", "104.16.0.2"}},
+			{GuestIP: "10.77.0.6", Hosts: []string{"1.1.1.1"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, want := range []string{
+		"set egress0 {",
+		"elements = { 104.16.0.1, 104.16.0.2 }",
+		"type filter hook forward priority filter; policy accept;",
+		"ct state established,related accept",
+		"ip saddr 10.77.0.2 udp dport 53 accept",
+		"ip saddr 10.77.0.2 ip daddr @egress0 accept",
+		"ip saddr 10.77.0.2 meta l4proto tcp reject with tcp reset",
+		"ip saddr 10.77.0.2 reject",
+		"ip saddr 10.77.0.6 ip daddr @egress1 accept",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q:\n%s", want, body)
+		}
+	}
+	// Sorted by guest IP so rule order is deterministic.
+	if strings.Index(body, "10.77.0.2 ip daddr") > strings.Index(body, "10.77.0.6 ip daddr") {
+		t.Errorf("egress policies not sorted:\n%s", body)
+	}
+}
+
+func TestManagerNftSpecIncludesEgress(t *testing.T) {
+	a := mustAllocator(t, "10.77.0.0/16")
+	alloc, err := a.allocate("sb1", "", "")
+	if err != nil {
+		t.Fatalf("allocate: %v", err)
+	}
+	alloc.allowHosts = []string{"1.2.3.4"}
+	m := &manager{
+		alloc:  a,
+		opts:   Options{Bridge: "fastvm0", CIDR: "10.77.0.0/16"},
+		uplink: "eth0",
+	}
+	spec := m.nftSpec(nil)
+	if len(spec.Egress) != 1 || spec.Egress[0].GuestIP != alloc.ip.String() {
+		t.Fatalf("egress = %+v, want one policy for %s", spec.Egress, alloc.ip)
+	}
+	body, err := renderNftables(spec)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(body, "ip saddr "+alloc.ip.String()+" meta l4proto tcp reject with tcp reset") {
+		t.Errorf("rendered bridge rules do not reject non-allowlisted TCP egress:\n%s", body)
+	}
+}

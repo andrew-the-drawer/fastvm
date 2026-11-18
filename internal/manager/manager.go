@@ -20,11 +20,24 @@ type CreateOptions struct {
 	Cmd         []string          // workload started after agent Ready (detached)
 	Env         map[string]string // workload environment
 	NoAutoSleep bool
+	// Start boots the VM immediately (default true when nil). A false value
+	// creates the sandbox in StateCreated so it can be started later.
+	Start *bool
+	// NetworkEnabled defaults to true when nil. False boots the guest with no
+	// NIC/TAP at all.
+	NetworkEnabled *bool
+	AllowHosts     []string
+	// FromCheckpoint restores a sandbox from a checkpoint directory. When set,
+	// Image is ignored and the checkpoint manifest supplies the base image.
+	FromCheckpoint string
 }
 
 // Runtime is the daemon-facing sandbox API.
 type Runtime interface {
 	Create(ctx context.Context, opts CreateOptions) (types.Sandbox, error)
+	Start(ctx context.Context, ref string) error
+	Checkpoint(ctx context.Context, ref, outDir string) error
+	CheckpointCopy(ctx context.Context, from, name string) (types.Sandbox, error)
 	Get(ctx context.Context, ref string) (types.Sandbox, error)
 	Stats(ctx context.Context, ref string) (types.SandboxStats, error)
 	List(ctx context.Context) ([]types.Sandbox, error)

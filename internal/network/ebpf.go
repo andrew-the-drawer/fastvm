@@ -146,6 +146,9 @@ func (m *ebpfManager) Create(ctx context.Context, req CreateRequest) (Port, erro
 	if err := validatePorts(req.Ports); err != nil {
 		return Port{}, err
 	}
+	if len(req.AllowHosts) > 0 {
+		return Port{}, fmt.Errorf("%w: egress allowlists require switch.mode=bridge", ErrUnsupported)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -173,6 +176,12 @@ func (m *ebpfManager) Create(ctx context.Context, req CreateRequest) (Port, erro
 		return Port{}, err
 	}
 
+	resolved, err := resolveAllowHosts(ctx, req.AllowHosts)
+	if err != nil {
+		m.alloc.release(alloc.sandboxID)
+		return Port{}, err
+	}
+	alloc.allowHosts = resolved
 	ep := &ebpfPort{alloc: alloc}
 
 	fail := func(stepErr error) (Port, error) {
@@ -258,12 +267,23 @@ func (m *ebpfManager) nftSpec(except *ebpfPort) nftSpec {
 			})
 		}
 	}
+	var egress []nftEgress
+	for _, ep := range m.ports {
+		if except != nil && ep.alloc.sandboxID == except.alloc.sandboxID {
+			continue
+		}
+		if ep.alloc.allowHosts == nil {
+			continue
+		}
+		egress = append(egress, nftEgress{GuestIP: ep.alloc.ip.String(), Hosts: ep.alloc.allowHosts})
+	}
 	return nftSpec{
 		Table:    nftTable,
 		Bridge:   m.hostIface,
 		CIDR:     m.opts.CIDR,
 		Uplink:   m.uplink,
 		Mappings: mappings,
+		Egress:   egress,
 	}
 }
 

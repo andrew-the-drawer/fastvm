@@ -12,6 +12,10 @@ package network
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"sort"
+	"strings"
 	"time"
 
 	"fastvm/internal/types"
@@ -23,6 +27,9 @@ type CreateRequest struct {
 	Ports     []types.PortMapping
 	MAC       string // optional; allocated when empty
 	IP        string // optional; reused on adoption/reconcile, allocated when empty
+	// AllowHosts, when non-empty, restricts guest egress to these hostnames
+	// (resolved to IPv4 at attach time) plus DNS and established traffic.
+	AllowHosts []string
 }
 
 // Port is the result of Create.
@@ -40,6 +47,40 @@ type Port struct {
 	// port for this sandbox (TAPName remains the guest TAP).
 	SwitchPort    string
 	SwitchIfIndex int
+}
+
+// resolveAllowHosts resolves egress allowlist hostnames to sorted, unique IPv4
+// addresses. nil means unrestricted; a non-nil result (even empty) is enforced.
+func resolveAllowHosts(ctx context.Context, hosts []string) ([]string, error) {
+	if len(hosts) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err != nil {
+			return nil, fmt.Errorf("network: resolve allow-host %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip4 := ip.To4(); ip4 != nil {
+				key := ip4.String()
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					out = append(out, key)
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("network: allow-host list resolved to no IPv4 addresses")
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // WakeEvent is emitted by the switch when a frame targets a sleeping port.

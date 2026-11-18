@@ -9,6 +9,7 @@ export interface VmStatusTagProps {
 }
 
 const STATE_BADGE: Record<SandboxState, string> = {
+  Created: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   Creating: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
   Starting: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
   Running: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",

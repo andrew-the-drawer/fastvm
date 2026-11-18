@@ -83,7 +83,7 @@ switch:
   # eBPF is the default data plane. Without CAP_BPF/BTF (or when the verifier
   # rejects the program) fastvmd automatically falls back to the Linux bridge
   # + AF_PACKET wake path.
-  mode: ebpf
+  mode: bridge
   isolate_sandboxes: true
   wake_notify: true
 

@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -182,6 +184,16 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 		} else {
 			resp = s.exec(ctx, req)
 		}
+	case OpNetwork:
+		if err := s.configureNetwork(req.Network); err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		}
+	case OpHostname:
+		if err := s.setHostname(req.Hostname); err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		}
 	case OpSignal:
 		if err := s.signal(req.Signal); err != nil {
 			resp.ExitCode = -1
@@ -203,6 +215,35 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 	if err := c.send(resp); err != nil {
 		log.Printf("agent: send response: %v", err)
 	}
+}
+
+func (s *Server) setHostname(hostname string) error {
+	if strings.TrimSpace(hostname) == "" {
+		return errors.New("hostname is required")
+	}
+	if len(hostname) > 63 {
+		return errors.New("hostname is too long")
+	}
+	return unix.Sethostname([]byte(hostname))
+}
+
+func (s *Server) configureNetwork(network *NetworkConfig) error {
+	if network == nil || strings.TrimSpace(network.Address) == "" {
+		return errors.New("network address is required")
+	}
+	ip, prefixLen, err := parseIPPrefix(network.Address)
+	if err != nil {
+		return err
+	}
+	cfg := &GuestNetworkConfig{Address: ip, PrefixLen: prefixLen}
+	if network.Gateway != "" {
+		gw := net.ParseIP(network.Gateway)
+		if gw == nil || gw.To4() == nil {
+			return fmt.Errorf("invalid gateway %q", network.Gateway)
+		}
+		cfg.Gateway = gw.To4()
+	}
+	return ConfigureGuestNetwork(GuestIface, cfg)
 }
 
 func (s *Server) exec(ctx context.Context, req Request) Response {

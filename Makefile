@@ -21,7 +21,8 @@ all: fmt vet build test
 
 build:
 	mkdir -p $(BIN)
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvm ./cmd/fastvm
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmctl ./cmd/fastvm
+	ln -sf fastvmctl $(BIN)/fastvm
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmd ./cmd/fastvmd
 	CGO_ENABLED=0 $(GO) build -o $(BIN)/fastvm-agent ./cmd/fastvm-agent
 
@@ -33,10 +34,11 @@ version:
 # PREFIX=$HOME/.local for an unprivileged install, or DESTDIR=... for packaging.
 # Binaries must be built first (make build) so install does not compile as root.
 install:
-	@test -x $(BIN)/fastvm -a -x $(BIN)/fastvmd -a -x $(BIN)/fastvm-agent || \
+	@test -x $(BIN)/fastvmctl -a -x $(BIN)/fastvmd -a -x $(BIN)/fastvm-agent || \
 		{ echo "missing binaries: run 'make build' first"; exit 1; }
 	$(INSTALL) -d "$(DESTDIR)$(BINDIR)"
-	$(INSTALL) -m 0755 $(BIN)/fastvm $(BIN)/fastvmd $(BIN)/fastvm-agent "$(DESTDIR)$(BINDIR)/"
+	$(INSTALL) -m 0755 $(BIN)/fastvmctl $(BIN)/fastvmd $(BIN)/fastvm-agent "$(DESTDIR)$(BINDIR)/"
+	ln -sf fastvmctl "$(DESTDIR)$(BINDIR)/fastvm"
 
 test:
 	$(GO) test ./...
@@ -56,7 +58,7 @@ clean:
 start:
 	@test -x $(BIN)/fastvmd || { echo "missing $(BIN)/fastvmd: run 'make build' first"; exit 1; }
 	@test "$$(id -u)" -eq 0 || { echo "fastvmd needs root for TAP/bridge/nftables: sudo make start"; exit 1; }
-	$(BIN)/fastvmd -config hack/config.yaml
+	$(BIN)/fastvmd --config hack/config.yaml
 
 FASTVM_SOCKET ?= /run/fastvm/fastvm.sock
 FASTVM ?= $(BIN)/fastvm
@@ -64,8 +66,8 @@ FASTVM ?= $(BIN)/fastvm
 # Build hack/Dockerfile.example into a bootable base disk via the running daemon.
 image:
 	@test -x $(BIN)/fastvm || { echo "missing $(BIN)/fastvm: run 'make build' first"; exit 1; }
-	@$(FASTVM) -socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path/to/fastvm.sock)"; exit 1; }
-	$(FASTVM) -socket $(FASTVM_SOCKET) image build -f hack/Dockerfile.example -t demo:latest hack
+	@$(FASTVM) --socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path/to/fastvm.sock)"; exit 1; }
+	$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/Dockerfile.example -t demo:latest hack
 
 # Must stay in sync with internal/template/template.go image tags.
 TEMPLATE_VERSION ?= v6
@@ -74,18 +76,18 @@ TEMPLATE_NAMES := claude codex copilot
 # Shared preflight for template-image builds.
 template-check:
 	@test -x $(BIN)/fastvm || { echo "missing $(BIN)/fastvm: run 'make build' first"; exit 1; }
-	@$(FASTVM) -socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path)"; exit 1; }
+	@$(FASTVM) --socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path)"; exit 1; }
 
 define build_template_image
 	@echo "building fastvm/$(1):$(TEMPLATE_VERSION)"
-	$(FASTVM) -socket $(FASTVM_SOCKET) image build -f hack/templates/$(1).Dockerfile -t fastvm/$(1):$(TEMPLATE_VERSION) hack/templates
+	$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/templates/$(1).Dockerfile -t fastvm/$(1):$(TEMPLATE_VERSION) hack/templates
 endef
 
 # Build all three images.
 template-images: template-check
 	@for t in $(TEMPLATE_NAMES); do \
 		echo "building fastvm/$$t:$(TEMPLATE_VERSION)"; \
-		$(FASTVM) -socket $(FASTVM_SOCKET) image build -f hack/templates/$$t.Dockerfile -t fastvm/$$t:$(TEMPLATE_VERSION) hack/templates || exit $$?; \
+		$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/templates/$$t.Dockerfile -t fastvm/$$t:$(TEMPLATE_VERSION) hack/templates || exit $$?; \
 	done
 
 # Build one image, e.g. `sudo make template:copilot` (escaped colon target).

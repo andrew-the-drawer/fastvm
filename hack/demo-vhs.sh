@@ -106,7 +106,7 @@ trap 'exit 130' INT; trap 'exit 143' TERM
 echo "== starting fastvmd ($MODE; state: $WORK) =="
 echo "   cloud hypervisor: $CH_BIN"
 echo "   virtiofsd: $VIRTIOFSD_BIN"
-DAEMON_CMD=("$ROOT/bin/fastvmd" -config "$DAEMON_CONFIG" -data-dir "$DATA_DIR" -socket "$SOCKET" -log-level info)
+DAEMON_CMD=("$ROOT/bin/fastvmd" --config "$DAEMON_CONFIG" --data-dir "$DATA_DIR" --socket "$SOCKET" --log-level info)
 if [[ "$(id -u)" -eq 0 ]]; then
   "${DAEMON_CMD[@]}" > "$LOG" 2>&1 &
   DAEMON_PID=$!

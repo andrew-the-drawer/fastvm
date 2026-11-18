@@ -71,6 +71,7 @@ describe("sandboxSchema", () => {
   it("exposes every daemon state", () => {
     expect(sandboxStateSchema.options).toEqual([
       "Creating",
+      "Created",
       "Starting",
       "Running",
       "Idle",

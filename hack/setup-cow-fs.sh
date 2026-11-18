@@ -13,7 +13,7 @@
 # Then start fastvm with this data dir (or set data_dir: /tmp/fastvm-cow/data
 # in a config copy):
 #
-#   sudo bin/fastvmd -config hack/config.yaml \
+#   sudo bin/fastvmd --config hack/config.yaml \
 #     -data-dir /tmp/fastvm-cow/data -socket /tmp/fastvm-demo.sock
 #
 # Environment overrides:

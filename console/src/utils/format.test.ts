@@ -15,6 +15,7 @@ import {
 import type { SandboxState } from "../lib/types";
 
 const ALL_STATES: SandboxState[] = [
+  "Created",
   "Creating",
   "Starting",
   "Running",

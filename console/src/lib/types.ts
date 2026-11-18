@@ -6,6 +6,7 @@ import { z } from "zod";
 /** Lifecycle states of a sandbox (docs/DESIGN.md §5.1). */
 export const sandboxStateSchema = z.enum([
   "Creating",
+  "Created",
   "Starting",
   "Running",
   "Idle",

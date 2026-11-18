@@ -252,10 +252,12 @@ func (a *fakeAgent) Exec(_ context.Context, req agent.Request) (agent.Response, 
 	}
 	return agent.Response{ID: req.ID, Stdout: a.stdout}, nil
 }
-func (a *fakeAgent) Touch(context.Context) error { return nil }
-func (a *fakeAgent) Events() <-chan agent.Event  { return a.events }
-func (a *fakeAgent) Close() error                { a.mu.Lock(); a.closed = true; a.mu.Unlock(); return nil }
-func (a *fakeAgent) execCount() int              { a.mu.Lock(); defer a.mu.Unlock(); return len(a.execs) }
+func (a *fakeAgent) Touch(context.Context) error                      { return nil }
+func (a *fakeAgent) SetNetwork(context.Context, string, string) error { return nil }
+func (a *fakeAgent) SetHostname(context.Context, string) error        { return nil }
+func (a *fakeAgent) Events() <-chan agent.Event                       { return a.events }
+func (a *fakeAgent) Close() error                                     { a.mu.Lock(); a.closed = true; a.mu.Unlock(); return nil }
+func (a *fakeAgent) execCount() int                                   { a.mu.Lock(); defer a.mu.Unlock(); return len(a.execs) }
 
 type fakeDialer struct {
 	mu     sync.Mutex

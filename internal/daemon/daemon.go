@@ -211,6 +211,9 @@ func (d *Daemon) newRuntime(id string) *runtime {
 // --- manager.Runtime -------------------------------------------------------
 
 func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
+	if opts.FromCheckpoint != "" {
+		return d.createFromCheckpoint(ctx, opts)
+	}
 	if strings.TrimSpace(opts.Image) == "" {
 		return types.Sandbox{}, fmt.Errorf("%w: image is required", manager.ErrInvalid)
 	}
@@ -227,6 +230,8 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	if err := validateVolumes(d.cfg, opts.Volumes); err != nil {
 		return types.Sandbox{}, err
 	}
+	start := opts.Start == nil || *opts.Start
+	networkEnabled := opts.NetworkEnabled == nil || *opts.NetworkEnabled
 	base, err := d.img.Get(ctx, opts.Image)
 	if err != nil {
 		return types.Sandbox{}, fmt.Errorf("%w: image %q: %v", manager.ErrNotFound, opts.Image, err)
@@ -242,6 +247,7 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	sb := types.Sandbox{
 		ID: id, Name: opts.Name, BaseDisk: base.Digest, VCPUs: vcpus, MemoryMB: mem,
 		State: types.StateCreating, NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports, Volumes: opts.Volumes,
+		NetworkEnabled: networkEnabled, AllowHosts: opts.AllowHosts,
 		VMMAPISock:  filepath.Join(dir, "vmm-api.sock"),
 		VsockUDPath: filepath.Join(dir, "vsock.sock"),
 		SerialPath:  filepath.Join(dir, "serial.log"),
@@ -266,40 +272,42 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	}
 	sb.VolumePath = vol.Path
 
-	port, err := d.net.Create(ctx, network.CreateRequest{SandboxID: id, Ports: opts.Ports})
-	if err != nil {
-		_ = d.vol.Remove(context.Background(), id)
-		d.fail(ctx, rt, "network: %v", err)
-		return types.Sandbox{}, err
-	}
-	sb.NetnsPath, sb.VethHost, sb.VethIn = port.NetnsPath, port.VethHost, port.VethIn
-	sb.TAPName, sb.MAC, sb.IP, sb.Gateway = port.TAPName, port.MAC, port.IP, port.Gateway
-	if d.sw != nil {
-		mac, merr := net.ParseMAC(sb.MAC)
-		if merr != nil {
-			_ = d.net.Delete(context.Background(), id)
+	if networkEnabled {
+		port, err := d.net.Create(ctx, network.CreateRequest{SandboxID: id, Ports: opts.Ports, AllowHosts: opts.AllowHosts})
+		if err != nil {
 			_ = d.vol.Remove(context.Background(), id)
-			d.fail(ctx, rt, "switch: bad MAC %q: %v", sb.MAC, merr)
-			return types.Sandbox{}, merr
+			d.fail(ctx, rt, "network: %v", err)
+			return types.Sandbox{}, err
 		}
-		ifidx := port.SwitchIfIndex
-		if ifidx == 0 {
-			var ierr error
-			ifidx, ierr = d.ifIndex(sb.TAPName)
-			if ierr != nil {
+		sb.NetnsPath, sb.VethHost, sb.VethIn = port.NetnsPath, port.VethHost, port.VethIn
+		sb.TAPName, sb.MAC, sb.IP, sb.Gateway = port.TAPName, port.MAC, port.IP, port.Gateway
+		if d.sw != nil {
+			mac, merr := net.ParseMAC(sb.MAC)
+			if merr != nil {
 				_ = d.net.Delete(context.Background(), id)
 				_ = d.vol.Remove(context.Background(), id)
-				d.fail(ctx, rt, "switch: tap %q: %v", sb.TAPName, ierr)
-				return types.Sandbox{}, ierr
+				d.fail(ctx, rt, "switch: bad MAC %q: %v", sb.MAC, merr)
+				return types.Sandbox{}, merr
 			}
-		}
-		if aerr := d.sw.AddPort(ctx, l2switch.Port{
-			SandboxID: id, IfIndex: ifidx, MAC: mac, IsSandbox: true,
-		}); aerr != nil {
-			_ = d.net.Delete(context.Background(), id)
-			_ = d.vol.Remove(context.Background(), id)
-			d.fail(ctx, rt, "switch: add port: %v", aerr)
-			return types.Sandbox{}, aerr
+			ifidx := port.SwitchIfIndex
+			if ifidx == 0 {
+				var ierr error
+				ifidx, ierr = d.ifIndex(sb.TAPName)
+				if ierr != nil {
+					_ = d.net.Delete(context.Background(), id)
+					_ = d.vol.Remove(context.Background(), id)
+					d.fail(ctx, rt, "switch: tap %q: %v", sb.TAPName, ierr)
+					return types.Sandbox{}, ierr
+				}
+			}
+			if aerr := d.sw.AddPort(ctx, l2switch.Port{
+				SandboxID: id, IfIndex: ifidx, MAC: mac, IsSandbox: true,
+			}); aerr != nil {
+				_ = d.net.Delete(context.Background(), id)
+				_ = d.vol.Remove(context.Background(), id)
+				d.fail(ctx, rt, "switch: add port: %v", aerr)
+				return types.Sandbox{}, aerr
+			}
 		}
 	}
 	rt.mu.Lock()
@@ -310,6 +318,23 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 		return types.Sandbox{}, err
 	}
 	rt.mu.Unlock()
+
+	if !start {
+		rt.mu.Lock()
+		rt.sb.State = types.StateCreated
+		err = d.persistLocked(ctx, rt, &rt.sb)
+		sbOut := rt.sb
+		rt.mu.Unlock()
+		if err != nil {
+			_ = d.net.Delete(context.Background(), id)
+			_ = d.vol.Remove(context.Background(), id)
+			return types.Sandbox{}, err
+		}
+		d.mu.Lock()
+		d.runtimes[id] = rt
+		d.mu.Unlock()
+		return sbOut, nil
+	}
 
 	rt.mu.Lock()
 	err = d.bootLocked(ctx, rt)
@@ -579,6 +604,46 @@ func (d *Daemon) Sleep(ctx context.Context, ref string, deep bool) error {
 	if deep {
 		return d.offloadLocked(ctx, rt, sb)
 	}
+	return nil
+}
+
+// Start boots a sandbox that was created with Start=false. The volume was
+// allocated at create time; the network is re-allocated here if the daemon
+// restarted while the sandbox was Created.
+func (d *Daemon) Start(ctx context.Context, ref string) error {
+	rt, err := d.runtimeFor(ctx, ref)
+	if err != nil {
+		return err
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	sb := &rt.sb
+	if sb.State != types.StateCreated {
+		return fmt.Errorf("%w: sandbox is %s", manager.ErrConflict, sb.State)
+	}
+	if sb.NetworkEnabled && sb.TAPName == "" {
+		port, err := d.net.Create(ctx, network.CreateRequest{SandboxID: sb.ID, Ports: sb.Ports, AllowHosts: sb.AllowHosts})
+		if err != nil {
+			return fmt.Errorf("network: %w", err)
+		}
+		sb.NetnsPath, sb.VethHost, sb.VethIn = port.NetnsPath, port.VethHost, port.VethIn
+		sb.TAPName, sb.MAC, sb.IP, sb.Gateway = port.TAPName, port.MAC, port.IP, port.Gateway
+		if d.sw != nil {
+			if err := d.addSwitchPort(ctx, sb.ID, port); err != nil {
+				_ = d.net.Delete(context.Background(), sb.ID)
+				return fmt.Errorf("switch: add port: %w", err)
+			}
+		}
+	}
+	sb.State = types.StateStarting
+	if err := d.persistLocked(ctx, rt, sb); err != nil {
+		return err
+	}
+	if err := d.bootLocked(ctx, rt); err != nil {
+		return err
+	}
+	d.wg.Add(1)
+	go d.monitor(rt)
 	return nil
 }
 
@@ -1335,7 +1400,7 @@ func (d *Daemon) recoverStale() {
 			// Re-register the network attachment (persistent TAP + wake sniffer)
 			// so the next inbound frame can wake it.
 			port, err := d.net.Create(context.Background(), network.CreateRequest{
-				SandboxID: sb.ID, Ports: sb.Ports, MAC: sb.MAC, IP: sb.IP,
+				SandboxID: sb.ID, Ports: sb.Ports, AllowHosts: sb.AllowHosts, MAC: sb.MAC, IP: sb.IP,
 			})
 			if err != nil {
 				d.log.Warn("dormant sandbox network adoption failed", "sandbox", sb.ID, "err", err)
@@ -1358,6 +1423,12 @@ func (d *Daemon) recoverStale() {
 				}
 			}
 			d.log.Info("recovered dormant sandbox", "sandbox", sb.ID, "ip", sb.IP)
+		case types.StateCreated:
+			// Nothing was running; keep it so `start` can boot it after a
+			// daemon restart. Host network state was torn down on shutdown.
+			sb.NetnsPath, sb.VethHost, sb.VethIn = "", "", ""
+			sb.TAPName, sb.MAC, sb.IP, sb.Gateway = "", "", "", ""
+			_ = d.st.PutSandbox(context.Background(), sb)
 		case types.StateRunning, types.StateIdle, types.StatePaused, types.StateStarting,
 			types.StateCreating, types.StateResuming:
 			sb.State = types.StateFailed

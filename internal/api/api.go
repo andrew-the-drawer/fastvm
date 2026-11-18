@@ -59,6 +59,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/shell", s.handleShell)
 	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/shell/ws", s.handleShellWS)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/sleep", s.handleSleep)
+	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/start", s.handleStart)
+	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/checkpoint", s.handleCheckpoint)
+	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/checkpoint/copy", s.handleCheckpointCopy)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/wake", s.handleWake)
 	s.mux.HandleFunc("GET /v1/events", s.handleEvents)
 }
@@ -183,15 +186,19 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 type createReq struct {
-	Name        string              `json:"name"`
-	Image       string              `json:"image"`
-	VCPUs       int                 `json:"vcpus"`
-	MemoryMB    int                 `json:"memory_mb"`
-	Ports       []types.PortMapping `json:"ports"`
-	Cmd         []string            `json:"cmd"`
-	Env         map[string]string   `json:"env"`
-	NoAutoSleep bool                `json:"no_auto_sleep"`
-	Volumes     []types.Volume      `json:"volumes"`
+	Name           string              `json:"name"`
+	Image          string              `json:"image"`
+	VCPUs          int                 `json:"vcpus"`
+	MemoryMB       int                 `json:"memory_mb"`
+	Ports          []types.PortMapping `json:"ports"`
+	Cmd            []string            `json:"cmd"`
+	Env            map[string]string   `json:"env"`
+	NoAutoSleep    bool                `json:"no_auto_sleep"`
+	Volumes        []types.Volume      `json:"volumes"`
+	Start          *bool               `json:"start"`
+	NetworkEnabled *bool               `json:"network_enabled"`
+	AllowHosts     []string            `json:"allow_hosts"`
+	FromCheckpoint string              `json:"from_checkpoint"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +210,8 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	sb, err := s.rt.Create(r.Context(), manager.CreateOptions{
 		Name: req.Name, Image: req.Image, VCPUs: req.VCPUs, MemoryMB: req.MemoryMB,
 		Ports: req.Ports, Volumes: req.Volumes, Cmd: req.Cmd, Env: req.Env, NoAutoSleep: req.NoAutoSleep,
+		Start: req.Start, NetworkEnabled: req.NetworkEnabled, AllowHosts: req.AllowHosts,
+		FromCheckpoint: req.FromCheckpoint,
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -358,6 +367,53 @@ func (s *Server) handleSleep(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.rt.Sleep(r.Context(), r.PathValue("ref"), req.Deep); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.Path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		return
+	}
+	if err := s.rt.Checkpoint(r.Context(), r.PathValue("ref"), req.Path); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCheckpointCopy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+	sb, err := s.rt.CheckpointCopy(r.Context(), r.PathValue("ref"), req.Name)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, sb)
+}
+
+func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
+	if err := s.rt.Start(r.Context(), r.PathValue("ref")); err != nil {
 		writeErr(w, err)
 		return
 	}

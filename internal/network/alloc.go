@@ -13,14 +13,15 @@ import (
 
 // allocation is one sandbox's network allocation inside the daemon namespace.
 type allocation struct {
-	sandboxID string
-	block     uint32 // /30 block index inside the pool
-	ip        net.IP // guest address, block base + 2
-	gateway   net.IP // block base + 1, hosted on the bridge
-	prefix    int
-	mac       net.HardwareAddr
-	tap       string
-	ports     []types.PortMapping
+	sandboxID  string
+	block      uint32 // /30 block index inside the pool
+	ip         net.IP // guest address, block base + 2
+	gateway    net.IP // block base + 1, hosted on the bridge
+	prefix     int
+	mac        net.HardwareAddr
+	tap        string
+	ports      []types.PortMapping
+	allowHosts []string // resolved IPv4s; nil = unrestricted
 }
 
 // allocator hands out point-to-point /30 blocks and MACs from fixed pools.

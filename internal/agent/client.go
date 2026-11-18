@@ -397,6 +397,31 @@ func (cl *client) Exec(ctx context.Context, req Request) (Response, error) {
 	return cl.request(ctx, req)
 }
 
+// SetNetwork reconfigures the guest NIC after a snapshot restore. address is
+// CIDR (e.g. "10.77.0.6/30"); gateway may be empty.
+func (cl *client) SetNetwork(ctx context.Context, address, gateway string) error {
+	resp, err := cl.request(ctx, Request{Op: OpNetwork, Network: &NetworkConfig{Address: address, Gateway: gateway}})
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("agent: network: %s", resp.Error)
+	}
+	return nil
+}
+
+// SetHostname renames the guest after a snapshot restore.
+func (cl *client) SetHostname(ctx context.Context, hostname string) error {
+	resp, err := cl.request(ctx, Request{Op: OpHostname, Hostname: hostname})
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("agent: hostname: %s", resp.Error)
+	}
+	return nil
+}
+
 // Touch reports explicit guest activity.
 func (cl *client) Touch(ctx context.Context) error {
 	resp, err := cl.request(ctx, Request{Op: OpTouch})

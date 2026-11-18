@@ -45,11 +45,11 @@ func TestCLIOverUnixSocket(t *testing.T) {
 		return string(out)
 	}
 
-	if out := run("version"); !strings.Contains(out, "fastvm ") || !strings.Contains(out, "fastvmd ") {
+	if out := run("version"); !strings.Contains(out, "fastvmctl ") || !strings.Contains(out, "fastvmd ") {
 		t.Fatalf("version output = %q", out)
 	}
 
-	out := run("run", "--image", base.Identity(), "--name", "cli-e2e", "--no-auto-sleep", "--", "/bin/echo", "boot")
+	out := run("run", "--detach", "--image", base.Identity(), "--name", "cli-e2e", "--no-auto-sleep", "--", "/bin/echo", "boot")
 	fields := strings.Fields(out)
 	if len(fields) < 2 {
 		t.Fatalf("run output = %q", out)

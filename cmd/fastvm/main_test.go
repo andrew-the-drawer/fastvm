@@ -43,17 +43,3 @@ func TestParseEnvs(t *testing.T) {
 		t.Fatalf("nil envs = %v, %v", env, err)
 	}
 }
-
-func TestSplitDashDash(t *testing.T) {
-	flags, cmd := splitDashDash([]string{"--image", "x", "--", "sh", "-c", "echo hi"})
-	if !reflect.DeepEqual(flags, []string{"--image", "x"}) {
-		t.Fatalf("flags = %v", flags)
-	}
-	if !reflect.DeepEqual(cmd, []string{"sh", "-c", "echo hi"}) {
-		t.Fatalf("cmd = %v", cmd)
-	}
-	flags, cmd = splitDashDash([]string{"--image", "x"})
-	if len(flags) != 2 || cmd != nil {
-		t.Fatalf("no dashdash: %v %v", flags, cmd)
-	}
-}

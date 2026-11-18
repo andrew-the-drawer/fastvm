@@ -27,11 +27,11 @@ func TestDaemonBinarySmoke(t *testing.T) {
 	socket := filepath.Join(tmp, "fastvm.sock")
 
 	cmd := exec.Command("unshare", "-Urn", "-r", fastvmd,
-		"-socket", socket,
-		"-data-dir", filepath.Join(tmp, "data"),
-		"-kernel", kernel,
-		"-agent", agentBin,
-		"-log-level", "debug",
+		"--socket", socket,
+		"--data-dir", filepath.Join(tmp, "data"),
+		"--kernel", kernel,
+		"--agent", agentBin,
+		"--log-level", "debug",
 	)
 	cmd.Dir = root
 	cmd.Stdout = testWriter{t}
@@ -59,7 +59,7 @@ func TestDaemonBinarySmoke(t *testing.T) {
 		}
 		return string(out)
 	}
-	if out := runCLI("version"); !strings.Contains(out, "fastvm ") || !strings.Contains(out, "fastvmd ") {
+	if out := runCLI("version"); !strings.Contains(out, "fastvmctl ") || !strings.Contains(out, "fastvmd ") {
 		t.Fatalf("version = %q", out)
 	}
 	if out := runCLI("image", "ls"); !strings.Contains(out, "TAG") {

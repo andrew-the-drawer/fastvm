@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -23,57 +22,75 @@ import (
 	l2switch "fastvm/internal/switch"
 	"fastvm/internal/version"
 	"fastvm/internal/vmm/cloudhypervisor"
+
 	"fastvm/internal/volume"
+	"github.com/charmbracelet/fang"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "fastvmd:", err)
+	root := newRootCmd()
+	if err := fang.Execute(context.Background(), root, fang.WithVersion(version.String())); err != nil {
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
-	if len(args) == 1 && (args[0] == "version" || args[0] == "-version" || args[0] == "--version") {
-		fmt.Printf("fastvmd %s\n", version.String())
-		return nil
+type daemonOptions struct {
+	configPath string
+	socketPath string
+	dataDir    string
+	kernelPath string
+	agentPath  string
+	logLevel   string
+}
+
+func newRootCmd() *cobra.Command {
+	var opts daemonOptions
+	root := &cobra.Command{
+		Use:   "fastvmd",
+		Short: "fastvm daemon",
+		Long: `fastvmd runs the fastvm control plane: the sandbox API, image and volume
+management, networking/switch, and Cloud Hypervisor lifecycle.
+
+Run as root (or with CAP_NET_ADMIN/CAP_BPF) so TAPs, nftables, and the L2 switch
+can be configured. The daemon owns a unix socket; clients use fastvmctl.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runDaemon(cmd.Context(), opts)
+		},
 	}
-	fs := flag.NewFlagSet("fastvmd", flag.ContinueOnError)
-	configPath := fs.String("config", "", "path to config YAML (optional)")
-	socketPath := fs.String("socket", "", "override API unix socket path")
-	dataDir := fs.String("data-dir", "", "override data directory")
-	kernelPath := fs.String("kernel", "", "override kernel image path")
-	agentPath := fs.String("agent", "", "override guest agent binary path")
-	logLevel := fs.String("log-level", "info", "log level: debug|info|warn|error")
-	showVersion := fs.Bool("version", false, "print version and exit")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *showVersion {
-		fmt.Printf("fastvmd %s\n", version.String())
-		return nil
-	}
-	cfg, err := config.Load(*configPath)
+	f := root.Flags()
+	f.StringVarP(&opts.configPath, "config", "c", "", "path to config YAML (optional)")
+	f.StringVar(&opts.socketPath, "socket", "", "override API unix socket path")
+	f.StringVar(&opts.dataDir, "data-dir", "", "override data directory")
+	f.StringVar(&opts.kernelPath, "kernel", "", "override kernel image path")
+	f.StringVar(&opts.agentPath, "agent", "", "override guest agent binary path")
+	f.StringVar(&opts.logLevel, "log-level", "info", "log level: debug|info|warn|error")
+	return root
+}
+
+func runDaemon(ctx context.Context, opts daemonOptions) error {
+	cfg, err := config.Load(opts.configPath)
 	if err != nil {
 		return err
 	}
-	if *socketPath != "" {
-		cfg.SocketPath = *socketPath
+	if opts.socketPath != "" {
+		cfg.SocketPath = opts.socketPath
 	}
-	if *dataDir != "" {
-		cfg.DataDir = *dataDir
+	if opts.dataDir != "" {
+		cfg.DataDir = opts.dataDir
 	}
-	if *kernelPath != "" {
-		cfg.KernelPath = *kernelPath
+	if opts.kernelPath != "" {
+		cfg.KernelPath = opts.kernelPath
 	}
-	if *agentPath != "" {
-		cfg.AgentPath = *agentPath
+	if opts.agentPath != "" {
+		cfg.AgentPath = opts.agentPath
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return err
 	}
 	level := slog.LevelInfo
-	_ = level.UnmarshalText([]byte(*logLevel))
+	_ = level.UnmarshalText([]byte(opts.logLevel))
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	if _, err := os.Stat(cfg.KernelPath); err != nil {
@@ -183,7 +200,7 @@ func run(args []string) error {
 	}
 	defer d.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	srv := api.New(d, d, log)

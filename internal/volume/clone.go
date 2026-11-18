@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -174,4 +175,32 @@ func copyAll(ctx context.Context, src, dst *os.File, size int64, buf []byte) err
 		return fmt.Errorf("volume: size volume: %w", err)
 	}
 	return nil
+}
+
+// CopyFile copies srcPath to dstPath with reflink when the filesystem supports
+// it, falling back to a sparse copy. It is used for portable checkpoints and
+// checkpoint copies.
+func CopyFile(ctx context.Context, srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o700); err != nil {
+		return err
+	}
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = cloneInto(ctx, COWReflink, srcPath, dst, info.Size())
+	if err != nil {
+		_ = dst.Close()
+		return err
+	}
+	return dst.Close()
 }

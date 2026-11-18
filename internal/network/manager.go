@@ -108,11 +108,16 @@ func (m *manager) Create(ctx context.Context, req CreateRequest) (Port, error) {
 		return Port{}, fmt.Errorf("%w: %s", ErrExists, req.SandboxID)
 	}
 
+	resolved, err := resolveAllowHosts(ctx, req.AllowHosts)
+	if err != nil {
+		return Port{}, err
+	}
 	alloc, err := m.alloc.allocate(req.SandboxID, req.MAC, req.IP)
 	if err != nil {
 		return Port{}, err
 	}
 	alloc.ports = append([]types.PortMapping(nil), req.Ports...)
+	alloc.allowHosts = resolved
 
 	// Localhost publishing needs a live loopback and route_localnet so the
 	// DNAT'ed packet can leave via the bridge; hairpin SNAT is added to the
@@ -345,12 +350,20 @@ func (m *manager) nftSpec(except *allocation) nftSpec {
 		}
 		all = filtered
 	}
+	var egress []nftEgress
+	for _, a := range all {
+		if a.allowHosts == nil {
+			continue
+		}
+		egress = append(egress, nftEgress{GuestIP: a.ip.String(), Hosts: a.allowHosts})
+	}
 	return nftSpec{
 		Table:    nftTable,
 		Bridge:   m.opts.Bridge,
 		CIDR:     m.opts.CIDR,
 		Uplink:   m.uplink,
 		Mappings: nftMappings(all),
+		Egress:   egress,
 	}
 }
 

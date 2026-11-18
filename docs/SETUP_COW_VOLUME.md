@@ -116,9 +116,9 @@ Terminal 1 (root; run from the repo root):
 
 ```sh
 cd /path/to/fastvm
-sudo bin/fastvmd -config hack/config.yaml \
-  -data-dir /tmp/fastvm-cow/data \
-  -socket /tmp/fastvm-cow/fastvm.sock
+sudo bin/fastvmd --config hack/config.yaml \
+  --data-dir /tmp/fastvm-cow/data \
+  --socket /tmp/fastvm-cow/fastvm.sock
 ```
 
 Now verify *where the data dir actually is* (this is what makes the volume CoW):
@@ -141,7 +141,7 @@ cd /path/to/fastvm
 
 sudo make image FASTVM_SOCKET="$SOCK"     # builds hack/Dockerfile.example -> demo:latest
 
-sudo bin/fastvm -socket "$SOCK" run \
+sudo bin/fastvm --socket "$SOCK" run \
   --image demo:latest --name cowtest --no-auto-sleep -- \
   /bin/sh -c 'while true; do sleep 5; done'
 ```
@@ -150,7 +150,7 @@ sudo bin/fastvm -socket "$SOCK" run \
 
 ```sh
 SOCK=/tmp/fastvm-cow/fastvm.sock
-ID=$(sudo bin/fastvm -socket "$SOCK" get cowtest | jq -r .id)
+ID=$(sudo bin/fastvm --socket "$SOCK" get cowtest | jq -r .id)
 META=/tmp/fastvm-cow/data/volumes/$ID.json
 
 sudo jq . "$META"                                 # "cow": "reflink"
@@ -185,7 +185,7 @@ Same shell as Step 4 (`$VOL`, `$BASE`, `$SOCK` still set):
 sudo sha256sum "$BASE" > /tmp/base.sha
 
 # write 64 MiB inside the guest
-sudo bin/fastvm -socket "$SOCK" exec cowtest -- /bin/sh -c \
+sudo bin/fastvm --socket "$SOCK" exec cowtest -- /bin/sh -c \
   'dd if=/dev/zero of=/cowtest.bin bs=1M count=64 2>/dev/null; sync'
 
 sudo du -B1 "$VOL"                 # grew by ~64 MiB
@@ -199,15 +199,15 @@ base image is untouched.
 Optional — the writes survive deep sleep/wake:
 
 ```sh
-sudo bin/fastvm -socket "$SOCK" pause cowtest --deep
-sudo bin/fastvm -socket "$SOCK" exec cowtest -- /bin/sh -c 'wc -c /cowtest.bin'
+sudo bin/fastvm --socket "$SOCK" pause cowtest --deep
+sudo bin/fastvm --socket "$SOCK" exec cowtest -- /bin/sh -c 'wc -c /cowtest.bin'
 # 67108864 (exec auto-wakes)
 ```
 
 ## Step 6 — clean up
 
 ```sh
-sudo bin/fastvm -socket /tmp/fastvm-cow/fastvm.sock rm cowtest
+sudo bin/fastvm --socket /tmp/fastvm-cow/fastvm.sock rm cowtest
 # stop fastvmd with Ctrl-C in terminal 1
 
 sudo umount /tmp/fastvm-cow

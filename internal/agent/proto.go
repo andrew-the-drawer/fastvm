@@ -13,6 +13,8 @@ const VsockPort uint32 = 1024
 // Op names.
 const (
 	OpReady     = "ready"
+	OpNetwork   = "network"
+	OpHostname  = "hostname"
 	OpExec      = "exec"
 	OpShell     = "shell"
 	OpSignal    = "signal"
@@ -48,6 +50,17 @@ type Request struct {
 	// Rows/Cols are the initial PTY size for OpShell.
 	Rows uint16 `json:"rows,omitempty"`
 	Cols uint16 `json:"cols,omitempty"`
+	// Network configures the guest NIC after a snapshot restore (new sandbox
+	// network identity). Address is CIDR, e.g. 10.77.0.6/30.
+	Network *NetworkConfig `json:"network,omitempty"`
+	// Hostname renames the guest after a checkpoint restore.
+	Hostname string `json:"hostname,omitempty"`
+}
+
+// NetworkConfig is the post-restore guest NIC configuration.
+type NetworkConfig struct {
+	Address string `json:"address"`
+	Gateway string `json:"gateway,omitempty"`
 }
 
 // Response is sent guest -> host for a Request.
@@ -72,6 +85,10 @@ type Client interface {
 	WaitReady(ctx context.Context) error
 	// Exec runs a command in the guest.
 	Exec(ctx context.Context, req Request) (Response, error)
+	// SetNetwork reconfigures the guest NIC after a snapshot restore.
+	SetNetwork(ctx context.Context, address, gateway string) error
+	// SetHostname renames the guest after a snapshot restore.
+	SetHostname(ctx context.Context, hostname string) error
 	// Touch reports explicit guest activity.
 	Touch(ctx context.Context) error
 	// Events streams agent events until the channel closes.

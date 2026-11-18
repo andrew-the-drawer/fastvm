@@ -29,10 +29,19 @@ type fakeRT struct {
 	slept   bool
 	deep    bool
 	woken   bool
+	started bool
 }
 
 func (f *fakeRT) Create(_ context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
 	f.created = opts
+	return f.sb, f.err
+}
+func (f *fakeRT) Start(context.Context, string) error {
+	f.started = true
+	return f.err
+}
+func (f *fakeRT) Checkpoint(context.Context, string, string) error { return f.err }
+func (f *fakeRT) CheckpointCopy(context.Context, string, string) (types.Sandbox, error) {
 	return f.sb, f.err
 }
 func (f *fakeRT) Get(context.Context, string) (types.Sandbox, error) {
