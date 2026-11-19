@@ -22,6 +22,7 @@ type FVMFile struct {
 	Version      int               `yaml:"version"`
 	Name         string            `yaml:"name"`
 	Image        string            `yaml:"image"`
+	Entrypoint   []string          `yaml:"entrypoint"`
 	Command      []string          `yaml:"command"`
 	Env          map[string]string `yaml:"env"`
 	Volumes      []FVMVolume       `yaml:"volumes"`
@@ -61,6 +62,7 @@ type FVMSpec struct {
 	Image          string
 	VCPUs          int
 	MemoryMB       int
+	Entrypoint     []string
 	Command        []string
 	Env            map[string]string
 	Volumes        []types.Volume
@@ -103,7 +105,8 @@ func LoadFVMFile(path string) (FVMSpec, error) {
 
 	spec := FVMSpec{
 		Name: name, Image: doc.Image,
-		Command: append([]string(nil), doc.Command...),
+		Entrypoint: append([]string(nil), doc.Entrypoint...),
+		Command:    append([]string(nil), doc.Command...),
 	}
 	if doc.Resources != nil {
 		spec.VCPUs, spec.MemoryMB = doc.Resources.VCPUs, doc.Resources.MemoryMB
@@ -206,6 +209,21 @@ func LoadFVMFile(path string) (FVMSpec, error) {
 		spec.NetworkEnabled = true
 	}
 	return spec, nil
+}
+
+// resolveWorkload combines the Docker-style entrypoint and command with
+// CLI-supplied arguments. CLI args replace the default command and are
+// appended to the entrypoint. Without an entrypoint, argv keeps the previous
+// behavior: CLI args replace command entirely.
+func resolveWorkload(entrypoint, command, cliArgs []string) []string {
+	args := cliArgs
+	if len(args) == 0 {
+		args = command
+	}
+	out := make([]string, 0, len(entrypoint)+len(args))
+	out = append(out, entrypoint...)
+	out = append(out, args...)
+	return out
 }
 
 func expandFVMEnv(value string) (string, error) {

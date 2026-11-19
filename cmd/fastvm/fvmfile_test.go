@@ -23,7 +23,8 @@ func TestLoadFVMFile(t *testing.T) {
 version: 1
 name: codex
 image: node:26
-command: ["/usr/local/bin/codex"]
+entrypoint: ["/usr/local/bin/codex"]
+command: ["--help"]
 env:
   TOKEN: "${FVM_TEST_TOKEN}"
 volumes:
@@ -47,6 +48,9 @@ no_auto_sleep: true
 	}
 	if spec.Name != "codex" || spec.Image != "node:26" {
 		t.Fatalf("spec = %+v", spec)
+	}
+	if len(spec.Entrypoint) != 1 || spec.Entrypoint[0] != "/usr/local/bin/codex" || len(spec.Command) != 1 || spec.Command[0] != "--help" {
+		t.Fatalf("entrypoint/command = %v/%v", spec.Entrypoint, spec.Command)
 	}
 	if spec.Env["TOKEN"] != "secret-value" {
 		t.Errorf("env not expanded: %v", spec.Env)
@@ -134,5 +138,29 @@ func TestLoadFVMFileRejectsBothUserDataForms(t *testing.T) {
 	_, err := LoadFVMFile(path)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResolveWorkload(t *testing.T) {
+	tests := []struct {
+		name       string
+		entrypoint []string
+		command    []string
+		cli        []string
+		want       []string
+	}{
+		{name: "command only", command: []string{"sleep", "10"}, want: []string{"sleep", "10"}},
+		{name: "cli overrides command", command: []string{"sleep", "10"}, cli: []string{"sh"}, want: []string{"sh"}},
+		{name: "entrypoint only", entrypoint: []string{"codex"}, want: []string{"codex"}},
+		{name: "entrypoint plus default command", entrypoint: []string{"codex"}, command: []string{"--help"}, want: []string{"codex", "--help"}},
+		{name: "entrypoint plus cli args", entrypoint: []string{"codex"}, command: []string{"--help"}, cli: []string{"exec"}, want: []string{"codex", "exec"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveWorkload(tc.entrypoint, tc.command, tc.cli)
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("resolveWorkload = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -3,5 +3,6 @@
 version: 1
 name: hello
 image: busybox:latest
-command: ["uname", "-a"]
+entrypoint: ["uname"]
+command: ["-a"]
 no_auto_sleep: true

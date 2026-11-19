@@ -238,9 +238,7 @@ sandbox running and prints its ID/state/name.`,
 				if noStart && spec.UserData != "" {
 					return errors.New("--no-start cannot be combined with user_data")
 				}
-				if len(runArgs) == 0 {
-					runArgs = spec.Command
-				}
+				runArgs = resolveWorkload(spec.Entrypoint, spec.Command, runArgs)
 			} else {
 				if err := opts.validate("run"); err != nil {
 					return err

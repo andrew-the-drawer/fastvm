@@ -21,7 +21,7 @@ fastvmctl run -d -f hack/docker.fvmfile
 version: 1
 name: codex
 image: node:26
-command: ["codex"]
+entrypoint: ["codex"]
 
 user_data: |
   #!/bin/sh
@@ -52,7 +52,8 @@ no_auto_sleep: true
 | `version` | Optional; currently `1`. |
 | `name` | Sandbox name. Defaults to the filename without `.fvmfile`. |
 | `image` | Required Docker image or base disk reference; built on demand. |
-| `command` | Guest argv. `fastvmctl run` uses it for foreground/`-it` execution. |
+| `entrypoint` | Fixed guest argv, like Docker's `ENTRYPOINT`. |
+| `command` | Default arguments appended to `entrypoint`, like Docker's `CMD`. Without `entrypoint`, it is the full guest argv. |
 | `env` | Guest environment for the workload, user_data, exec, and shell sessions. `${NAME}` is expanded from the host environment; unset references are an error. |
 | `volumes` | `host`, `guest`, `read_only`. Relative host paths resolve against the file directory. |
 | `ports` | `host`, `guest`, optional `protocol` (`tcp`/`udp`). |
@@ -60,16 +61,42 @@ no_auto_sleep: true
 | `network.allow_hosts` | Egress allowlist; implies `enabled: true`. |
 | `resources.vcpus` / `resources.memory_mb` | Sandbox sizing; 0 uses daemon defaults. |
 | `no_auto_sleep` | Disable automatic idle sleep. |
-| `user_data` | Shell script run once on first boot, before `command`. |
+| `user_data` | Shell script run once on first boot, before `entrypoint`/`command`. |
 | `user_data_file` | Script file, resolved relative to the `.fvmfile`. Mutually exclusive with `user_data`. |
 
 CLI `--name` still overrides the file name. Resource/network/volume/port/env
 flags are not combined with `-f`; put them in the file instead.
 
+## Entrypoint and command
+
+These follow Docker's `ENTRYPOINT` / `CMD` split:
+
+```yaml
+name: codex
+image: node:26
+entrypoint: ["codex"]
+command: ["--help"]
+```
+
+- `entrypoint` is the fixed executable and arguments.
+- `command` is the default argument list, used when no CLI args are given.
+- CLI args after `--` replace `command` and are appended to `entrypoint`.
+
+| .fvmfile | CLI | Final argv |
+|---|---|---|
+| `entrypoint: [codex]`, `command: [--help]` | — | `codex --help` |
+| `entrypoint: [codex]`, `command: [--help]` | `-- exec` | `codex exec` |
+| `command: [sleep, 10]` | — | `sleep 10` |
+| `command: [sleep, 10]` | `-- sh` | `sh` |
+
+The last two rows preserve the previous behavior for files that only use
+`command`. If an entrypoint is present, CLI args no longer replace it; use
+`fastvmctl exec` or a different `.fvmfile` to run another program.
+
 ## First-boot user data
 
 `user_data` is a cloud-init-style first-boot script without a cloud-init
-dependency. It runs once per sandbox, after boot and before `command`:
+dependency. It runs once per sandbox, after boot and before `entrypoint`/`command`:
 
 ```yaml
 user_data: |

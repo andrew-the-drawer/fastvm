@@ -11,7 +11,7 @@
 version: 1
 name: docker
 image: docker:29-dind
-command:
+entrypoint:
   - dockerd
   - --host=unix:///var/run/docker.sock
   - --iptables=false

@@ -6,7 +6,7 @@
 version: 1
 name: nodejs
 image: node:26-alpine
-command: ["node"]
+entrypoint: ["node"]
 
 resources:
   vcpus: 2
