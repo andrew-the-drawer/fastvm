@@ -35,6 +35,7 @@ func (d *Daemon) Shell(ctx context.Context, ref string, req agent.ShellRequest) 
 
 	rt.execActive++
 	d.touchLocked(rt, sb)
+	req.Env = mergeEnvMaps(rt.workloadEnv, req.Env)
 	if err := d.persistLocked(ctx, rt, sb); err != nil {
 		rt.execActive--
 		return nil, err
@@ -64,4 +65,21 @@ func (d *Daemon) Shell(ctx context.Context, ref string, req agent.ShellRequest) 
 		_ = d.persistLocked(context.Background(), rt, sb)
 	}()
 	return sess, nil
+}
+
+// mergeEnvMaps returns base with override applied. It is used as a fallback for
+// base images whose agent predates the env RPC; newer agents merge their own
+// copy, and per-request overrides still win there.
+func mergeEnvMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
 }

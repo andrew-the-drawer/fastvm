@@ -478,3 +478,33 @@ func TestDialFirecrackerMissingGuest(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestClientSetEnvAppliesToExec(t *testing.T) {
+	f := startAgentServer(t)
+	cl := dialTestClient(t, f.sock)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := cl.SetEnv(ctx, map[string]string{"ANTHROPIC_API_KEY": "secret", "SHARED": "base"}); err != nil {
+		t.Fatalf("SetEnv: %v", err)
+	}
+	resp, err := cl.Exec(ctx, Request{Argv: []string{"/bin/sh", "-c", `printf '%s/%s' "$ANTHROPIC_API_KEY" "$SHARED"`}})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if resp.ExitCode != 0 || resp.Stdout != "secret/base" {
+		t.Fatalf("sandbox env not applied: %+v", resp)
+	}
+
+	// Per-request overrides win over the sandbox environment.
+	resp, err = cl.Exec(ctx, Request{
+		Argv: []string{"/bin/sh", "-c", `printf '%s' "$SHARED"`},
+		Env:  map[string]string{"SHARED": "request"},
+	})
+	if err != nil {
+		t.Fatalf("Exec override: %v", err)
+	}
+	if resp.Stdout != "request" {
+		t.Fatalf("request override not applied: %+v", resp)
+	}
+}

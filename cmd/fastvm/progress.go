@@ -70,7 +70,7 @@ func (m imageBuildModel) View() tea.View {
 	}
 	return tea.NewView(fmt.Sprintf(
 		"%s Building image %s\n\n"+
-			"  This can take a few minutes on the first build:\n"+
+			"  This can take a while on the first build:\n"+
 			"  docker build → export rootfs → inject agent → create ext4 disk\n\n"+
 			"  elapsed %s",
 		m.spinner.View(),

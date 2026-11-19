@@ -397,6 +397,19 @@ func (cl *client) Exec(ctx context.Context, req Request) (Response, error) {
 	return cl.request(ctx, req)
 }
 
+// SetEnv sets the sandbox base environment used for subsequent guest
+// processes (exec, shell, workload).
+func (cl *client) SetEnv(ctx context.Context, env map[string]string) error {
+	resp, err := cl.request(ctx, Request{Op: OpEnv, Env: env})
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("agent: env: %s", resp.Error)
+	}
+	return nil
+}
+
 // SetNetwork reconfigures the guest NIC after a snapshot restore. address is
 // CIDR (e.g. "10.77.0.6/30"); gateway may be empty.
 func (cl *client) SetNetwork(ctx context.Context, address, gateway string) error {

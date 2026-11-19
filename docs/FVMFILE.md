@@ -53,7 +53,7 @@ no_auto_sleep: true
 | `name` | Sandbox name. Defaults to the filename without `.fvmfile`. |
 | `image` | Required Docker image or base disk reference; built on demand. |
 | `command` | Guest argv. `fastvmctl run` uses it for foreground/`-it` execution. |
-| `env` | Guest environment. `${NAME}` is expanded from the host environment; unset references are an error. |
+| `env` | Guest environment for the workload, user_data, exec, and shell sessions. `${NAME}` is expanded from the host environment; unset references are an error. |
 | `volumes` | `host`, `guest`, `read_only`. Relative host paths resolve against the file directory. |
 | `ports` | `host`, `guest`, optional `protocol` (`tcp`/`udp`). |
 | `network.enabled` | Allocate a guest NIC. |

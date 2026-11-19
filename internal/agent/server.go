@@ -69,10 +69,11 @@ func LoadWorkload(path string) (*Workload, error) {
 type Server struct {
 	workloadLog string
 
-	mu       sync.Mutex
-	conns    map[*conn]struct{}
-	workload *workloadState
-	busy     bool
+	mu         sync.Mutex
+	conns      map[*conn]struct{}
+	workload   *workloadState
+	sandboxEnv map[string]string
+	busy       bool
 }
 
 type workloadState struct {
@@ -184,6 +185,8 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 		} else {
 			resp = s.exec(ctx, req)
 		}
+	case OpEnv:
+		s.setSandboxEnv(req.Env)
 	case OpNetwork:
 		if err := s.configureNetwork(req.Network); err != nil {
 			resp.ExitCode = -1
@@ -261,7 +264,7 @@ func (s *Server) exec(ctx context.Context, req Request) Response {
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, req.Argv[0], req.Argv[1:]...)
-	cmd.Env = mergeEnv(req.Env)
+	cmd.Env = s.commandEnv(req.Env)
 	if req.Stdin != "" {
 		cmd.Stdin = strings.NewReader(req.Stdin)
 	}
@@ -309,7 +312,7 @@ func (s *Server) startWorkload(w Workload) error {
 		out = nil
 	}
 	cmd := exec.Command(w.Argv[0], w.Argv[1:]...)
-	cmd.Env = mergeEnv(w.Env)
+	cmd.Env = s.commandEnv(w.Env)
 	cmd.Dir = w.Dir
 	if out != nil {
 		cmd.Stdout = out
@@ -496,6 +499,31 @@ func (b *cappedBuffer) String() string {
 		s += "\n[output truncated by fastvm-agent]"
 	}
 	return s
+}
+
+// setSandboxEnv stores the env applied to every child process.
+func (s *Server) setSandboxEnv(env map[string]string) {
+	copied := make(map[string]string, len(env))
+	for k, v := range env {
+		copied[k] = v
+	}
+	s.mu.Lock()
+	s.sandboxEnv = copied
+	s.mu.Unlock()
+}
+
+// commandEnv merges the sandbox env with per-request overrides.
+func (s *Server) commandEnv(overrides map[string]string) []string {
+	s.mu.Lock()
+	merged := make(map[string]string, len(s.sandboxEnv)+len(overrides))
+	for k, v := range s.sandboxEnv {
+		merged[k] = v
+	}
+	s.mu.Unlock()
+	for k, v := range overrides {
+		merged[k] = v
+	}
+	return mergeEnv(merged)
 }
 
 // mergeEnv returns os.Environ with overrides applied.

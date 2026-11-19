@@ -205,7 +205,7 @@ sandbox running and prints its ID/state/name.`,
 					return nil
 				}
 				if opts.interactive || opts.tty {
-					return removeAfterRun(sb.ID, runShell(sb.ID, cmdArgs))
+					return removeAfterRun(sb.ID, runShell(sb.ID, cmdArgs, nil))
 				}
 				return removeAfterRun(sb.ID, execSandbox(sb.ID, cmdArgs, nil))
 			}
@@ -299,7 +299,7 @@ sandbox running and prints its ID/state/name.`,
 				if len(argv) == 0 {
 					argv = []string{"/bin/sh"}
 				}
-				return removeAfterRun(sb.ID, runShell(sb.ID, argv))
+				return removeAfterRun(sb.ID, runShell(sb.ID, argv, env))
 			}
 			if len(runArgs) > 0 {
 				return removeAfterRun(sb.ID, execSandbox(sb.ID, runArgs, env))
@@ -506,7 +506,7 @@ func newExecCmd() *cobra.Command {
 				if len(argv) == 0 {
 					argv = []string{"/bin/sh"}
 				}
-				return runShell(ref, argv)
+				return runShell(ref, argv, nil)
 			}
 			if len(argv) == 0 {
 				return errors.New("command required (or use -it for an interactive shell)")
@@ -529,7 +529,7 @@ func newShellCmd() *cobra.Command {
 			if len(argv) == 0 {
 				argv = []string{"/bin/sh"}
 			}
-			return runShell(args[0], argv)
+			return runShell(args[0], argv, nil)
 		},
 	}
 }

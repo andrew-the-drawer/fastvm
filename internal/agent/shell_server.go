@@ -32,7 +32,7 @@ func (s *Server) serveShell(ctx context.Context, c *conn, req Request) {
 	}
 
 	cmd := exec.Command(arg[0], arg[1:]...)
-	cmd.Env = mergeEnv(req.Env)
+	cmd.Env = s.commandEnv(req.Env)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {

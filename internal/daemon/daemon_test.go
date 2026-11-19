@@ -232,6 +232,7 @@ func (d *fakeDriver) lastRestore() (vmm.RestoreConfig, bool) {
 type fakeAgent struct {
 	mu      sync.Mutex
 	ready   bool
+	envs    []map[string]string
 	execs   []agent.Request
 	events  chan agent.Event
 	closed  bool
@@ -251,6 +252,16 @@ func (a *fakeAgent) Exec(_ context.Context, req agent.Request) (agent.Response, 
 		return agent.Response{}, a.exitErr
 	}
 	return agent.Response{ID: req.ID, Stdout: a.stdout}, nil
+}
+func (a *fakeAgent) SetEnv(_ context.Context, env map[string]string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	copied := make(map[string]string, len(env))
+	for k, v := range env {
+		copied[k] = v
+	}
+	a.envs = append(a.envs, copied)
+	return nil
 }
 func (a *fakeAgent) Touch(context.Context) error                      { return nil }
 func (a *fakeAgent) SetNetwork(context.Context, string, string) error { return nil }
@@ -413,6 +424,32 @@ func TestCreateRunning(t *testing.T) {
 	stored, ok, err := h.st.GetSandbox(context.Background(), sb.ID)
 	if err != nil || !ok || stored.State != types.StateRunning {
 		t.Fatalf("store: ok=%v err=%v state=%+v", ok, err, stored)
+	}
+}
+
+func TestCreateAndExecCarrySandboxEnv(t *testing.T) {
+	h := newHarness(t)
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "env", Image: "img:test", Env: map[string]string{"TOKEN": "secret"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	a := h.dial.last()
+	a.mu.Lock()
+	if len(a.envs) != 1 || a.envs[0]["TOKEN"] != "secret" {
+		t.Fatalf("agent envs = %v", a.envs)
+	}
+	a.mu.Unlock()
+
+	if _, err := h.d.Exec(context.Background(), sb.ID, []string{"sh"}, nil); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	a.mu.Lock()
+	last := a.execs[len(a.execs)-1]
+	a.mu.Unlock()
+	if last.Env["TOKEN"] != "secret" {
+		t.Fatalf("exec env = %v, want TOKEN=secret", last.Env)
 	}
 }
 

@@ -37,12 +37,12 @@ func cmdShell(args []string) error {
 			argv = rest
 		}
 	}
-	return runShell(ref, argv)
+	return runShell(ref, argv, nil)
 }
 
 // runShell opens an interactive PTY session in the guest over the daemon's
 // HTTP-upgrade shell endpoint.
-func runShell(ref string, argv []string) error {
+func runShell(ref string, argv []string, extraEnv map[string]string) error {
 	if len(argv) == 0 {
 		argv = []string{"/bin/sh"}
 	}
@@ -59,7 +59,10 @@ func runShell(ref string, argv []string) error {
 		}
 	}
 
-	env := map[string]string{}
+	env := make(map[string]string, len(extraEnv)+1)
+	for k, v := range extraEnv {
+		env[k] = v
+	}
 	if term := os.Getenv("TERM"); term != "" {
 		env["TERM"] = term
 	}

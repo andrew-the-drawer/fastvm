@@ -412,6 +412,13 @@ func (d *Daemon) bootLocked(ctx context.Context, rt *runtime) error {
 		sb.Error = err.Error()
 		return err
 	}
+	if len(rt.workloadEnv) > 0 {
+		if err := ac.SetEnv(ctx, rt.workloadEnv); err != nil {
+			// Old base images have no env RPC; the daemon still merges the env
+			// into exec/shell requests while it is alive.
+			d.event(ctx, sb.ID, "warning", "guest env: "+err.Error())
+		}
+	}
 	if rt.userData != "" {
 		if err := d.runUserData(ctx, ac, rt.userData, rt.workloadEnv); err != nil {
 			_ = vm.Stop(context.Background())
@@ -596,6 +603,7 @@ func (d *Daemon) Exec(ctx context.Context, ref string, argv []string, env map[st
 	rt.execActive++
 	defer func() { rt.execActive-- }()
 	d.touchLocked(rt, sb)
+	env = mergeEnvMaps(rt.workloadEnv, env)
 	req := agent.Request{ID: newReqID(), Op: agent.OpExec, Argv: argv, Env: env, TimeoutMS: 10 * 60 * 1000}
 	resp, err := ac.Exec(ctx, req)
 	if err != nil {
