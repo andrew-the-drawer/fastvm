@@ -40,12 +40,16 @@ func (f *fakeRT) Start(context.Context, string) error {
 	f.started = true
 	return f.err
 }
-func (f *fakeRT) Checkpoint(context.Context, string, string) (string, error) {
-	return "fake-checkpoint", f.err
+func (f *fakeRT) Snapshot(context.Context, string, string) (string, error) {
+	return "fake-snapshot", f.err
 }
-func (f *fakeRT) CheckpointCopy(context.Context, string, string) (types.Sandbox, error) {
+func (f *fakeRT) SnapshotCopy(context.Context, string, string) (types.Sandbox, error) {
 	return f.sb, f.err
 }
+func (f *fakeRT) ListSnapshots(context.Context) ([]types.SnapshotInfo, error) {
+	return nil, f.err
+}
+func (f *fakeRT) RemoveSnapshot(context.Context, string) error { return f.err }
 func (f *fakeRT) Get(context.Context, string) (types.Sandbox, error) {
 	return f.sb, f.err
 }

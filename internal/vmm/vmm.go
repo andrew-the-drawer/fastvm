@@ -25,7 +25,7 @@ type BootConfig struct {
 	Volumes []types.Volume
 }
 
-// Snapshot is a paused VM checkpoint on disk. The driver treats Dir as opaque
+// Snapshot is a paused VM snapshot on disk. The driver treats Dir as opaque
 // and reads whatever files its own snapshot format uses.
 type Snapshot struct {
 	Dir string

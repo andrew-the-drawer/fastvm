@@ -2,15 +2,14 @@
 
 `fastvmctl` is the redesigned CLI for fastvm. It uses
 [Fang](https://github.com/charmbracelet/fang) + Cobra, so `--help`, `--version`,
-shell completion, and command/flag errors are styled consistently. The `fastvm`
-binary is kept as a compatibility symlink while scripts migrate.
+shell completion, and command/flag errors are styled consistently.
 
 Status: **implemented** — on-demand images, network toggle/allowlist,
-interactive run, unified run/resume lifecycle, checkpoints, live copies, and
-restore.
+interactive run, unified run/resume lifecycle, snapshots, and independent
+snapshot copies.
 
 Some limitations are called out below (allowlist requires the bridge data
-plane; checkpoints do not include host volume mounts yet).
+plane; snapshots do not include host volume mounts yet).
 
 ## Conventions
 
@@ -49,10 +48,11 @@ fastvmctl resume --name agent
 # Or create+boot in one step
 fastvmctl run --net --name agent --image alpine
 
-# Checkpoints: save the running state, make a live copy, or restore a saved one.
-fastvmctl checkpoint save --name agent          # prints the generated checkpoint name
-fastvmctl checkpoint copy --from agent --name try-1
-fastvmctl checkpoint restore --from <checkpoint> --name agent2
+# Snapshots: save the running state and restore copies.
+snapshot=$(fastvmctl snapshot agent --name before-upgrade)   # explicit name
+fastvmctl snapshot ls                           # list saved snapshots
+fastvmctl run --from-snapshot "$snapshot" --name agent2
+fastvmctl snapshot rm "$snapshot"          # delete when no longer needed
 
 # Existing commands
 fastvmctl ls
@@ -98,36 +98,33 @@ Global socket selection: `--socket <path>` before the command, or
   interactive terminal. Non-TTY/CI invocations get a single status line on
   stderr instead, so stdout stays parseable. Use `image build` for explicit
   Dockerfile builds.
-- `checkpoint -o DIR` writes `checkpoint.json`, `snapshot/` (CH config, memory,
-  CPU state) and `disk.img`. Running sandboxes are paused only for the snapshot
-  and resumed afterwards. Host volume mounts are not captured yet.
-- `checkpoint save --name REF` writes `checkpoint.json`, `snapshot/` (CH
-  config, memory, CPU state) and `disk.img` under
-  `<data_dir>/checkpoints/<generated-name>`, then prints the generated name.
-  Running sandboxes are paused only for the snapshot and resumed afterwards.
-  Keeping checkpoints in the data directory lets the disk be reflinked on CoW
-  filesystems. Host volume mounts are not captured yet.
-- `checkpoint copy --from PARENT --name CHILD` makes a live copy: the parent is
-  paused briefly, the child is restored running with its own writable disk, IP,
-  and hostname. Disk cloning uses reflink where the filesystem supports it and
-  sparse copy otherwise; guest RAM is snapshotted and restored.
-- `checkpoint restore --from NAME --name REF` restores the checkpoint and boots
-  it running; the restored sandbox gets a new TAP/IP (when the checkpoint had
+- `save <sandbox>` writes `snapshot.json`, `snapshot/` (CH config, memory,
+  CPU state) and `disk.img` under `<data_dir>/snapshots/<generated-name>`,
+  then prints the generated name. Running sandboxes are paused only for the
+  snapshot and resumed afterwards. Keeping snapshots in the data directory
+  lets the disk be reflinked on CoW filesystems. Host volume mounts are not
+  captured yet.
+- `snapshots` lists saved snapshots; `snapshots rm NAME...` deletes one
+  or more snapshot directories.
+- `run --from-snapshot NAME --name REF` restores the snapshot and boots it
+  running; the restored sandbox gets a new TAP/IP (when the snapshot had
   networking) and a new hostname via the guest agent. The base image referenced
-  by the checkpoint must still exist in the image store.
+  by the snapshot must still exist in the image store. Multiple independent
+  sandboxes can be restored from the same snapshot.
 - Images are cached by Docker reference; use `image ls` to inspect them.
-  Rebuild base images after changing the guest agent (checkpoint restores use
+  Rebuild base images after changing the guest agent (snapshot restores use
   the agent's `network`/`hostname` ops for the new sandbox identity).
 - Build identity is included in `version`/`--version`
   (`<tag|commit>[-dirty]`).
 
 ## Limitations / follow-ups
 
-- Checkpoints with host volume mounts are rejected.
+- Snapshots with host volume mounts are rejected.
 - Allowlists are bridge-only (eBPF mode returns a clear error).
 - Hostname/IP reconfiguration needs a guest agent built with the `network` and
   `hostname` ops; rebuild images after upgrading the agent.
-- Checkpoint names are resolved under `<data_dir>/checkpoints`; absolute paths
-  and path traversal are rejected.
-- `checkpoint restore` starts the restored VM immediately (no stopped/paused
+- Snapshot names are resolved under `<data_dir>/snapshots`; absolute paths
+  and path traversal are rejected. `save` takes the source sandbox as a
+  positional argument; `run --from-snapshot` takes a snapshot name.
+- `run --from-snapshot` starts the restored VM immediately (no stopped/paused
   restore state yet).

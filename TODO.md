@@ -18,7 +18,7 @@ Longer-term ideas and research items. Check items off as they land.
 ## Secrets
 
 - [ ] **Secret injection and proxying**
-  - Define the threat model: secrets must not leak into command lines, environment metadata, disk images, or checkpoint bundles.
+  - Define the threat model: secrets must not leak into command lines, environment metadata, disk images, or snapshot bundles.
   - Options to compare:
     - agent-mediated injection into a tmpfs/secure path at runtime
     - per-sandbox secret proxy with short-lived credentials
@@ -39,5 +39,5 @@ Longer-term ideas and research items. Check items off as they land.
 - [ ] **containerd / Kubernetes shim**
   - Investigate a containerd runtime shim v2 backed by fastvm sandboxes.
   - Map pod lifecycle, CNI networking, volumes, and logs onto fastvm primitives.
-  - Consider checkpoint/restore integration and whether a CRI implementation is warranted.
+  - Consider snapshot/restore integration and whether a CRI implementation is warranted.
   - Start with a prototype shim before committing to a Kubernetes integration.

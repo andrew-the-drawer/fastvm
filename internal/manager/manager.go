@@ -27,18 +27,20 @@ type CreateOptions struct {
 	// NIC/TAP at all.
 	NetworkEnabled *bool
 	AllowHosts     []string
-	// FromCheckpoint names a checkpoint under the daemon's data directory.
-	// When set, Image is ignored and the checkpoint manifest supplies the base
+	// FromSnapshot names a snapshot under the daemon's data directory.
+	// When set, Image is ignored and the snapshot manifest supplies the base
 	// image.
-	FromCheckpoint string
+	FromSnapshot string
 }
 
 // Runtime is the daemon-facing sandbox API.
 type Runtime interface {
 	Create(ctx context.Context, opts CreateOptions) (types.Sandbox, error)
 	Start(ctx context.Context, ref string) error
-	Checkpoint(ctx context.Context, ref, name string) (string, error)
-	CheckpointCopy(ctx context.Context, from, name string) (types.Sandbox, error)
+	Snapshot(ctx context.Context, ref, name string) (string, error)
+	SnapshotCopy(ctx context.Context, from, name string) (types.Sandbox, error)
+	ListSnapshots(ctx context.Context) ([]types.SnapshotInfo, error)
+	RemoveSnapshot(ctx context.Context, name string) error
 	Get(ctx context.Context, ref string) (types.Sandbox, error)
 	Stats(ctx context.Context, ref string) (types.SandboxStats, error)
 	List(ctx context.Context) ([]types.Sandbox, error)

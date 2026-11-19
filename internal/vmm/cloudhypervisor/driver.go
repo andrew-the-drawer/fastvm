@@ -481,13 +481,13 @@ func (v *vm) Resume(ctx context.Context) error {
 	return nil
 }
 
-// Snapshot writes a paused memory+device-state checkpoint into dir.
+// Snapshot writes a paused memory+device-state snapshot into dir.
 func (v *vm) Snapshot(ctx context.Context, dir string) (vmm.Snapshot, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return vmm.Snapshot{}, err
 	}
 	// CH refuses to overwrite an existing snapshot; the daemon reuses one
-	// snapshot directory per sandbox, so clear the previous checkpoint first.
+	// snapshot directory per sandbox, so clear the previous snapshot first.
 	if entries, err := os.ReadDir(dir); err == nil {
 		for _, entry := range entries {
 			if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {

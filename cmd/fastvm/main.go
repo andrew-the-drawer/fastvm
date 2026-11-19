@@ -25,8 +25,7 @@ func newRootCmd() *cobra.Command {
 		Long: `fastvmctl controls fastvmd and its Cloud Hypervisor sandboxes.
 
 Create sandboxes from Docker images on demand, choose networking and egress
-policy, attach a PTY, checkpoint a running sandbox, or make a live checkpoint
-copy.
+policy, attach a PTY, or snapshot a running sandbox and restore copies.
 
 Run without a command to see the full command reference.`,
 		Version: version.String(),
@@ -36,7 +35,7 @@ Run without a command to see the full command reference.`,
 	root.AddCommand(
 		newImageCmd(),
 		newRunCmd(),
-		newCheckpointCmd(),
+		newSnapshotCmd(),
 		newListCmd(),
 		newGetCmd(),
 		newExecCmd(),

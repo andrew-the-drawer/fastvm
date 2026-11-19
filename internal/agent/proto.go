@@ -53,7 +53,7 @@ type Request struct {
 	// Network configures the guest NIC after a snapshot restore (new sandbox
 	// network identity). Address is CIDR, e.g. 10.77.0.6/30.
 	Network *NetworkConfig `json:"network,omitempty"`
-	// Hostname renames the guest after a checkpoint restore.
+	// Hostname renames the guest after a snapshot restore.
 	Hostname string `json:"hostname,omitempty"`
 }
 

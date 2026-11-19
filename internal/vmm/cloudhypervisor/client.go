@@ -91,7 +91,7 @@ func (c *apiClient) shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPut, "vm.shutdown", nil, nil)
 }
 
-// snapshot writes a paused VM checkpoint into dir (PUT /vm.snapshot).
+// snapshot writes a paused VM snapshot into dir (PUT /vm.snapshot).
 func (c *apiClient) snapshot(ctx context.Context, dir string) error {
 	return c.do(ctx, http.MethodPut, "vm.snapshot", map[string]string{
 		"destination_url": "file://" + dir,

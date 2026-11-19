@@ -4,6 +4,17 @@ package types
 import "time"
 
 // State is a sandbox lifecycle state (docs/DESIGN.md §5.1).
+
+// SnapshotInfo is one saved snapshot under the daemon data directory.
+type SnapshotInfo struct {
+	Name           string    `json:"name"`
+	CreatedAt      time.Time `json:"created_at"`
+	ImageDigest    string    `json:"image_digest"`
+	VCPUs          int       `json:"vcpus"`
+	MemoryMB       int       `json:"memory_mb"`
+	NetworkEnabled bool      `json:"network_enabled"`
+}
+
 type State string
 
 const (

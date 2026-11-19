@@ -20,7 +20,7 @@ virtio-fs.
 - **On-demand images.** First use of a Docker image builds and caches a bootable
   disk, with a Bubbles progress spinner.
 - **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
-- **Checkpoints.** Save RAM/CPU/disk, restore a copy, or make a live copy.
+- **Snapshots.** Save RAM/CPU/disk and restore independent copies.
 - **Volumes and ports.** virtio-fs host mounts and nftables published ports.
 - **Declarative configs and console.** Run `.fvmfile` sandboxes (e.g. coding
   agents), and use the OIDC web console.
@@ -58,42 +58,44 @@ fastvmctl run --net --image alpine --allow-host example.com -- \
 ```
 
 On-demand image builds show a Bubbles progress display. Host volumes, published
-ports, checkpoints, and declarative configs are covered in
+ports, snapshots, and declarative configs are covered in
 [docs/FASTVMCTL.md](docs/FASTVMCTL.md) and
 [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
 
-## Checkpoints
+## Snapshots
 
-A checkpoint saves the sandbox’s running state — RAM, CPU, and writable disk —
-so it can be copied live or restored later/elsewhere.
+A snapshot saves the sandbox’s running state — RAM, CPU, and writable disk —
+so it can be restored as one or more independent sandboxes.
 
 ```sh
 # Boot the original with a long-running workload
 fastvmctl run -d --net --image alpine --name original-vm -- sh -c 'sleep 600'
 
-# Change its state after boot so copies prove they came from the live VM
-fastvmctl exec original-vm -- sh -c 'echo "created before checkpoint" > /root/checkpoint-source.txt'
+# Change its state after boot, so copies prove they came from the live VM
+fastvmctl exec original-vm -- sh -c 'echo "created before snapshot" > /root/snapshot-source.txt'
 
-# Copy the live sandbox into an independent child
-fastvmctl checkpoint copy --from original-vm --name copy-1
-fastvmctl exec copy-1 -- cat /root/checkpoint-source.txt
+# Save the running state; this prints the generated snapshot name
+snapshot=$(fastvmctl snapshot original-vm --name before-upgrade)
+
+# Restore independent copies from the same snapshot
+fastvmctl run --from-snapshot "$snapshot" --name copy-1
+fastvmctl exec copy-1 -- cat /root/snapshot-source.txt
 fastvmctl exec copy-1 -- sh -c 'ps | grep "[s]leep 600"'   # process survived
 
-# Save the original’s running state; prints the generated checkpoint name
-checkpoint=$(fastvmctl checkpoint save --name original-vm)
-
-# Restore it as a new running sandbox
-fastvmctl checkpoint restore --from "$checkpoint" --name copy-2
-fastvmctl exec copy-2 -- cat /root/checkpoint-source.txt
+fastvmctl run --from-snapshot "$snapshot" --name copy-2
+fastvmctl exec copy-2 -- cat /root/snapshot-source.txt
 fastvmctl exec copy-2 -- sh -c 'ps | grep "[s]leep 600"'  # process survived
+
+fastvmctl snapshot ls                    # list saved snapshots
+fastvmctl snapshot rm "$snapshot"   # delete it when no longer needed
 
 fastvmctl rm copy-1 copy-2 original-vm
 ```
 
-Checkpoints are stored under the daemon data directory
-(`<data_dir>/checkpoints/<name>`), so the disk can be reflinked on CoW
-filesystems. The base image referenced by the checkpoint must still exist when
-restoring. Host-directory mounts are not included in checkpoints.
+Snapshots are stored under the daemon data directory
+(`<data_dir>/snapshots/<name>`), so the disk can be reflinked on CoW
+filesystems. The base image referenced by the snapshot must still exist when
+restoring. Host-directory mounts are not included in snapshots.
 
 ## Web console
 
@@ -116,7 +118,7 @@ optional and only used to build base images.
 | [Design](docs/DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, roadmap |
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |
 | [Cloud Hypervisor migration](docs/CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor, kernel/tooling, virtio-fs volumes |
-| [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, checkpoints |
+| [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, snapshots |
 | [`.fvmfile` configs](docs/FVMFILE.md) | Declarative sandbox configs for coding agents and reproducible runs |
 | [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |

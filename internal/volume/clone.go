@@ -178,8 +178,8 @@ func copyAll(ctx context.Context, src, dst *os.File, size int64, buf []byte) err
 }
 
 // CopyFile copies srcPath to dstPath with reflink when the filesystem supports
-// it, falling back to a sparse copy. It is used for portable checkpoints and
-// checkpoint copies.
+// it, falling back to a sparse copy. It is used for portable snapshots and
+// snapshot copies.
 func CopyFile(ctx context.Context, srcPath, dstPath string) error {
 	src, err := os.Open(srcPath)
 	if err != nil {

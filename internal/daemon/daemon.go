@@ -211,13 +211,13 @@ func (d *Daemon) newRuntime(id string) *runtime {
 // --- manager.Runtime -------------------------------------------------------
 
 func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
-	if opts.FromCheckpoint != "" {
-		path, err := d.resolveCheckpointName(opts.FromCheckpoint)
+	if opts.FromSnapshot != "" {
+		path, err := d.resolveSnapshotName(opts.FromSnapshot)
 		if err != nil {
 			return types.Sandbox{}, err
 		}
-		opts.FromCheckpoint = path
-		return d.createFromCheckpoint(ctx, opts)
+		opts.FromSnapshot = path
+		return d.createFromSnapshot(ctx, opts)
 	}
 	if strings.TrimSpace(opts.Image) == "" {
 		return types.Sandbox{}, fmt.Errorf("%w: image is required", manager.ErrInvalid)

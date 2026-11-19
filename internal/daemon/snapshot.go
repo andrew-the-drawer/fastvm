@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,11 +20,11 @@ import (
 	"fastvm/internal/volume"
 )
 
-const checkpointVersion = 1
+const snapshotVersion = 1
 
-// CheckpointMeta is the portable checkpoint manifest written next to the CH
+// SnapshotMeta is the portable snapshot manifest written next to the CH
 // snapshot and writable disk image.
-type CheckpointMeta struct {
+type SnapshotMeta struct {
 	Version        int       `json:"version"`
 	ImageDigest    string    `json:"image_digest"`
 	VCPUs          int       `json:"vcpus"`
@@ -36,37 +37,37 @@ type CheckpointMeta struct {
 
 var hostnameArgRE = regexp.MustCompile(`fastvm\.hostname=[^ ]+`)
 
-const checkpointsDirName = "checkpoints"
+const snapshotsDirName = "snapshots"
 
-var checkpointNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var snapshotNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-// checkpointsRoot is the only location where saved checkpoints live. Keeping
+// snapshotsRoot is the only location where saved snapshots live. Keeping
 // it inside the data directory means reflink-capable filesystems can CoW the
-// runtime disk into the checkpoint and back out on restore.
-func (d *Daemon) checkpointsRoot() string {
-	return filepath.Join(d.cfg.DataDir, checkpointsDirName)
+// runtime disk into the snapshot and back out on restore.
+func (d *Daemon) snapshotsRoot() string {
+	return filepath.Join(d.cfg.DataDir, snapshotsDirName)
 }
 
-// resolveCheckpointName validates a client-supplied checkpoint name and returns
+// resolveSnapshotName validates a client-supplied snapshot name and returns
 // its managed path. Absolute/path-like values are rejected so the API never
 // writes outside the data directory.
-func (d *Daemon) resolveCheckpointName(name string) (string, error) {
+func (d *Daemon) resolveSnapshotName(name string) (string, error) {
 	if name == "" {
-		return "", errors.New("checkpoint: name is required")
+		return "", errors.New("snapshot: name is required")
 	}
 	if filepath.IsAbs(name) || strings.ContainsRune(name, filepath.Separator) || name == "." || name == ".." {
-		return "", fmt.Errorf("checkpoint: invalid name %q", name)
+		return "", fmt.Errorf("snapshot: invalid name %q", name)
 	}
-	if !checkpointNameRE.MatchString(name) {
-		return "", fmt.Errorf("checkpoint: invalid name %q (use letters, digits, dot, dash, underscore)", name)
+	if !snapshotNameRE.MatchString(name) {
+		return "", fmt.Errorf("snapshot: invalid name %q (use letters, digits, dot, dash, underscore)", name)
 	}
-	return filepath.Join(d.checkpointsRoot(), name), nil
+	return filepath.Join(d.snapshotsRoot(), name), nil
 }
 
-func (d *Daemon) newCheckpointName(sb *types.Sandbox) (string, error) {
+func (d *Daemon) newSnapshotName(sb *types.Sandbox) (string, error) {
 	base := sb.Name
 	if base == "" {
-		base = "checkpoint"
+		base = "snapshot"
 	}
 	base = strings.Map(func(r rune) rune {
 		switch {
@@ -78,7 +79,7 @@ func (d *Daemon) newCheckpointName(sb *types.Sandbox) (string, error) {
 	}, base)
 	base = strings.Trim(base, ".-_")
 	if base == "" {
-		base = "checkpoint"
+		base = "snapshot"
 	}
 	if len(base) > 80 {
 		base = base[:80]
@@ -88,17 +89,17 @@ func (d *Daemon) newCheckpointName(sb *types.Sandbox) (string, error) {
 		if i > 0 {
 			name = fmt.Sprintf("%s-%d", name, i+1)
 		}
-		if _, err := os.Stat(filepath.Join(d.checkpointsRoot(), name)); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(d.snapshotsRoot(), name)); errors.Is(err, os.ErrNotExist) {
 			return name, nil
 		}
 	}
-	return "", errors.New("checkpoint: could not allocate a unique name")
+	return "", errors.New("snapshot: could not allocate a unique name")
 }
 
-// Checkpoint exports a sandbox's memory/CPU snapshot and writable disk into a
-// managed checkpoint under the data directory, returning its name. Running
+// Snapshot exports a sandbox's memory/CPU snapshot and writable disk into a
+// managed snapshot under the data directory, returning its name. Running
 // sandboxes are paused only for the snapshot and resumed afterwards.
-func (d *Daemon) Checkpoint(ctx context.Context, ref, name string) (string, error) {
+func (d *Daemon) Snapshot(ctx context.Context, ref, name string) (string, error) {
 	rt, err := d.runtimeFor(ctx, ref)
 	if err != nil {
 		return "", err
@@ -106,29 +107,29 @@ func (d *Daemon) Checkpoint(ctx context.Context, ref, name string) (string, erro
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if name == "" {
-		name, err = d.newCheckpointName(&rt.sb)
+		name, err = d.newSnapshotName(&rt.sb)
 		if err != nil {
 			return "", err
 		}
 	}
-	dir, err := d.resolveCheckpointName(name)
+	dir, err := d.resolveSnapshotName(name)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(d.checkpointsRoot(), 0o700); err != nil {
+	if err := os.MkdirAll(d.snapshotsRoot(), 0o700); err != nil {
 		return "", err
 	}
-	if err := d.checkpointLocked(ctx, rt, dir); err != nil {
+	if err := d.snapshotLocked(ctx, rt, dir); err != nil {
 		return "", err
 	}
 	return name, nil
 }
 
-// checkpointLocked exports a checkpoint; the caller must hold rt.mu.
-func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir string) error {
+// snapshotLocked exports a snapshot; the caller must hold rt.mu.
+func (d *Daemon) snapshotLocked(ctx context.Context, rt *runtime, outDir string) error {
 	sb := &rt.sb
 	if len(sb.Volumes) > 0 {
-		return fmt.Errorf("%w: checkpoints with host volumes are not supported yet", manager.ErrConflict)
+		return fmt.Errorf("%w: snapshots with host volumes are not supported yet", manager.ErrConflict)
 	}
 	if sb.VolumePath == "" {
 		return fmt.Errorf("%w: sandbox has no writable disk", manager.ErrConflict)
@@ -138,10 +139,10 @@ func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir strin
 		return err
 	}
 	if abs != filepath.Clean(abs) {
-		return errors.New("checkpoint: output path must be clean")
+		return errors.New("snapshot: output path must be clean")
 	}
 	if entries, err := os.ReadDir(abs); err == nil && len(entries) > 0 {
-		return fmt.Errorf("checkpoint: output directory %s is not empty", abs)
+		return fmt.Errorf("snapshot: output directory %s is not empty", abs)
 	}
 	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return err
@@ -158,7 +159,7 @@ func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir strin
 			return fmt.Errorf("%w: no VMM to snapshot", manager.ErrConflict)
 		}
 		if err := rt.vm.Pause(ctx); err != nil {
-			return fmt.Errorf("pause for checkpoint: %w", err)
+			return fmt.Errorf("pause for snapshot: %w", err)
 		}
 		resume = true
 	case types.StatePaused:
@@ -168,14 +169,14 @@ func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir strin
 	case types.StateDormant:
 		// Memory snapshot is already on disk.
 	default:
-		return fmt.Errorf("%w: cannot checkpoint a %s sandbox", manager.ErrConflict, sb.State)
+		return fmt.Errorf("%w: cannot snapshot a %s sandbox", manager.ErrConflict, sb.State)
 	}
 	if resume {
 		defer func() {
 			resumeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := rt.vm.Resume(resumeCtx); err != nil {
-				d.log.Warn("resume after checkpoint failed", "sandbox", sb.ID, "err", err)
+				d.log.Warn("resume after snapshot failed", "sandbox", sb.ID, "err", err)
 			}
 		}()
 	}
@@ -192,8 +193,8 @@ func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir strin
 	if err := volume.CopyFile(ctx, sb.VolumePath, filepath.Join(abs, "disk.img")); err != nil {
 		return fmt.Errorf("copy disk: %w", err)
 	}
-	meta := CheckpointMeta{
-		Version: checkpointVersion, ImageDigest: sb.BaseDisk,
+	meta := SnapshotMeta{
+		Version: snapshotVersion, ImageDigest: sb.BaseDisk,
 		VCPUs: sb.VCPUs, MemoryMB: sb.MemoryMB,
 		NetworkEnabled: sb.NetworkEnabled, AllowHosts: sb.AllowHosts,
 		VsockCID: guestCID(sb.IP), CreatedAt: d.now(),
@@ -202,51 +203,51 @@ func (d *Daemon) checkpointLocked(ctx context.Context, rt *runtime, outDir strin
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(abs, "checkpoint.json"), append(data, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(abs, "snapshot.json"), append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	d.event(ctx, sb.ID, "state", "checkpoint written: "+abs)
+	d.event(ctx, sb.ID, "state", "snapshot written: "+abs)
 	return nil
 }
 
-// CheckpointCopy creates a live child from a running sandbox. The parent is
-// paused only while the checkpoint is captured, then resumed.
-func (d *Daemon) CheckpointCopy(ctx context.Context, from, name string) (types.Sandbox, error) {
+// SnapshotCopy creates a live child from a running sandbox. The parent is
+// paused only while the snapshot is captured, then resumed.
+func (d *Daemon) SnapshotCopy(ctx context.Context, from, name string) (types.Sandbox, error) {
 	rt, err := d.runtimeFor(ctx, from)
 	if err != nil {
 		return types.Sandbox{}, err
 	}
 	parentID := rt.sb.ID
-	tmp := filepath.Join(d.cfg.DataDir, "checkpoints", fmt.Sprintf("copy-%s-%d", parentID, time.Now().UnixNano()))
+	tmp := filepath.Join(d.cfg.DataDir, "snapshots", fmt.Sprintf("copy-%s-%d", parentID, time.Now().UnixNano()))
 	defer os.RemoveAll(tmp)
 	// Capture the parent under the runtime lock without treating the temporary
-	// copy directory as a saved checkpoint.
+	// copy directory as a saved snapshot.
 	rt.mu.Lock()
-	cpErr := d.checkpointLocked(ctx, rt, tmp)
+	cpErr := d.snapshotLocked(ctx, rt, tmp)
 	rt.mu.Unlock()
 	if cpErr != nil {
 		return types.Sandbox{}, cpErr
 	}
-	return d.createFromCheckpoint(ctx, manager.CreateOptions{
-		Name: name, FromCheckpoint: tmp, Start: boolPtr(true),
+	return d.createFromSnapshot(ctx, manager.CreateOptions{
+		Name: name, FromSnapshot: tmp, Start: boolPtr(true),
 	})
 }
 
-func (d *Daemon) createFromCheckpoint(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
-	data, err := os.ReadFile(filepath.Join(opts.FromCheckpoint, "checkpoint.json"))
+func (d *Daemon) createFromSnapshot(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
+	data, err := os.ReadFile(filepath.Join(opts.FromSnapshot, "snapshot.json"))
 	if err != nil {
-		return types.Sandbox{}, fmt.Errorf("checkpoint: read manifest: %w", err)
+		return types.Sandbox{}, fmt.Errorf("snapshot: read manifest: %w", err)
 	}
-	var meta CheckpointMeta
+	var meta SnapshotMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return types.Sandbox{}, fmt.Errorf("checkpoint: parse manifest: %w", err)
+		return types.Sandbox{}, fmt.Errorf("snapshot: parse manifest: %w", err)
 	}
-	if meta.Version != checkpointVersion {
-		return types.Sandbox{}, fmt.Errorf("checkpoint: unsupported version %d", meta.Version)
+	if meta.Version != snapshotVersion {
+		return types.Sandbox{}, fmt.Errorf("snapshot: unsupported version %d", meta.Version)
 	}
 	base, err := d.img.Get(ctx, meta.ImageDigest)
 	if err != nil {
-		return types.Sandbox{}, fmt.Errorf("%w: checkpoint image %q: %v", manager.ErrNotFound, meta.ImageDigest, err)
+		return types.Sandbox{}, fmt.Errorf("%w: snapshot image %q: %v", manager.ErrNotFound, meta.ImageDigest, err)
 	}
 	id, err := newID()
 	if err != nil {
@@ -274,24 +275,24 @@ func (d *Daemon) createFromCheckpoint(ctx context.Context, opts manager.CreateOp
 	if err := os.MkdirAll(filepath.Dir(volPath), 0o700); err != nil {
 		return types.Sandbox{}, err
 	}
-	if err := volume.CopyFile(ctx, filepath.Join(opts.FromCheckpoint, "disk.img"), volPath); err != nil {
-		return types.Sandbox{}, fmt.Errorf("checkpoint: import disk: %w", err)
+	if err := volume.CopyFile(ctx, filepath.Join(opts.FromSnapshot, "disk.img"), volPath); err != nil {
+		return types.Sandbox{}, fmt.Errorf("snapshot: import disk: %w", err)
 	}
 	sb.VolumePath = volPath
-	if err := copyDirContents(filepath.Join(opts.FromCheckpoint, "snapshot"), sb.SnapshotDir); err != nil {
-		return types.Sandbox{}, fmt.Errorf("checkpoint: import snapshot: %w", err)
+	if err := copyDirContents(filepath.Join(opts.FromSnapshot, "snapshot"), sb.SnapshotDir); err != nil {
+		return types.Sandbox{}, fmt.Errorf("snapshot: import snapshot: %w", err)
 	}
 	if sb.NetworkEnabled {
 		port, err := d.net.Create(ctx, network.CreateRequest{SandboxID: sb.ID, Ports: sb.Ports, AllowHosts: sb.AllowHosts})
 		if err != nil {
 			_ = os.RemoveAll(dir)
 			_ = os.Remove(volPath)
-			return types.Sandbox{}, fmt.Errorf("checkpoint restore network: %w", err)
+			return types.Sandbox{}, fmt.Errorf("snapshot restore network: %w", err)
 		}
 		sb.NetnsPath, sb.VethHost, sb.VethIn = port.NetnsPath, port.VethHost, port.VethIn
 		sb.TAPName, sb.MAC, sb.IP, sb.Gateway = port.TAPName, port.MAC, port.IP, port.Gateway
 	}
-	if err := patchCheckpointConfig(sb.SnapshotDir, &sb); err != nil {
+	if err := patchSnapshotConfig(sb.SnapshotDir, &sb); err != nil {
 		_ = d.net.Delete(context.Background(), id)
 		_ = os.RemoveAll(dir)
 		_ = os.Remove(volPath)
@@ -373,17 +374,17 @@ func (d *Daemon) restoreLocked(ctx context.Context, rt *runtime, cid uint32) err
 	return nil
 }
 
-var checkpointHostnameRE = hostnameArgRE // keep regexp compiled once
+var snapshotHostnameRE = hostnameArgRE // keep regexp compiled once
 
-func patchCheckpointConfig(snapshotDir string, sb *types.Sandbox) error {
+func patchSnapshotConfig(snapshotDir string, sb *types.Sandbox) error {
 	path := filepath.Join(snapshotDir, "config.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("checkpoint: read CH config: %w", err)
+		return fmt.Errorf("snapshot: read CH config: %w", err)
 	}
 	var cfg map[string]any
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("checkpoint: parse CH config: %w", err)
+		return fmt.Errorf("snapshot: parse CH config: %w", err)
 	}
 	if disks, ok := cfg["disks"].([]any); ok && len(disks) > 0 {
 		if disk, ok := disks[0].(map[string]any); ok {
@@ -404,11 +405,11 @@ func patchCheckpointConfig(snapshotDir string, sb *types.Sandbox) error {
 			netcfg["mac"] = sb.MAC
 		}
 	} else {
-		return errors.New("checkpoint: snapshot has no NIC but the restored sandbox requested networking")
+		return errors.New("snapshot: snapshot has no NIC but the restored sandbox requested networking")
 	}
 	if payload, ok := cfg["payload"].(map[string]any); ok {
 		if cmdline, ok := payload["cmdline"].(string); ok {
-			cmdline = checkpointHostnameRE.ReplaceAllString(cmdline, "fastvm.hostname="+sb.ID)
+			cmdline = snapshotHostnameRE.ReplaceAllString(cmdline, "fastvm.hostname="+sb.ID)
 			payload["cmdline"] = cmdline
 		}
 	}
@@ -449,7 +450,7 @@ func copyDirContents(src, dst string) error {
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			return fmt.Errorf("checkpoint: unexpected directory %s", entry.Name())
+			return fmt.Errorf("snapshot: unexpected directory %s", entry.Name())
 		}
 		if err := copyFile(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
 			return err
@@ -459,3 +460,65 @@ func copyDirContents(src, dst string) error {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+// ListSnapshots enumerates saved snapshots under the data directory.
+func (d *Daemon) ListSnapshots(ctx context.Context) ([]types.SnapshotInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(d.snapshotsRoot())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []types.SnapshotInfo{}, nil
+		}
+		return nil, fmt.Errorf("snapshot: list: %w", err)
+	}
+	out := make([]types.SnapshotInfo, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || !snapshotNameRE.MatchString(entry.Name()) {
+			continue
+		}
+		dir := filepath.Join(d.snapshotsRoot(), entry.Name())
+		data, err := os.ReadFile(filepath.Join(dir, "snapshot.json"))
+		if err != nil {
+			continue // not a complete snapshot
+		}
+		var meta SnapshotMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		created := meta.CreatedAt
+		if created.IsZero() {
+			if info, err := entry.Info(); err == nil {
+				created = info.ModTime()
+			}
+		}
+		out = append(out, types.SnapshotInfo{
+			Name: entry.Name(), CreatedAt: created, ImageDigest: meta.ImageDigest,
+			VCPUs: meta.VCPUs, MemoryMB: meta.MemoryMB, NetworkEnabled: meta.NetworkEnabled,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// RemoveSnapshot deletes one saved snapshot directory.
+func (d *Daemon) RemoveSnapshot(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	path, err := d.resolveSnapshotName(name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: snapshot %q", manager.ErrNotFound, name)
+		}
+		return err
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("snapshot: remove %q: %w", name, err)
+	}
+	return nil
+}

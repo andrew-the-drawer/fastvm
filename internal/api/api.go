@@ -60,8 +60,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/shell/ws", s.handleShellWS)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/sleep", s.handleSleep)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/start", s.handleStart)
-	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/checkpoint", s.handleCheckpoint)
-	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/checkpoint/copy", s.handleCheckpointCopy)
+	s.mux.HandleFunc("GET /v1/snapshots", s.handleListSnapshots)
+	s.mux.HandleFunc("DELETE /v1/snapshots/{name}", s.handleRemoveSnapshot)
+	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/snapshot", s.handleSnapshot)
+	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/snapshot/copy", s.handleSnapshotCopy)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/wake", s.handleWake)
 	s.mux.HandleFunc("GET /v1/events", s.handleEvents)
 }
@@ -198,7 +200,7 @@ type createReq struct {
 	Start          *bool               `json:"start"`
 	NetworkEnabled *bool               `json:"network_enabled"`
 	AllowHosts     []string            `json:"allow_hosts"`
-	FromCheckpoint string              `json:"from_checkpoint"`
+	FromSnapshot   string              `json:"from_snapshot"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +213,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Image: req.Image, VCPUs: req.VCPUs, MemoryMB: req.MemoryMB,
 		Ports: req.Ports, Volumes: req.Volumes, Cmd: req.Cmd, Env: req.Env, NoAutoSleep: req.NoAutoSleep,
 		Start: req.Start, NetworkEnabled: req.NetworkEnabled, AllowHosts: req.AllowHosts,
-		FromCheckpoint: req.FromCheckpoint,
+		FromSnapshot: req.FromSnapshot,
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -373,7 +375,27 @@ func (s *Server) handleSleep(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	snapshots, err := s.rt.ListSnapshots(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if snapshots == nil {
+		snapshots = []types.SnapshotInfo{}
+	}
+	writeJSON(w, http.StatusOK, snapshots)
+}
+
+func (s *Server) handleRemoveSnapshot(w http.ResponseWriter, r *http.Request) {
+	if err := s.rt.RemoveSnapshot(r.Context(), r.PathValue("name")); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -383,15 +405,15 @@ func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	name, err := s.rt.Checkpoint(r.Context(), r.PathValue("ref"), req.Name)
+	name, err := s.rt.Snapshot(r.Context(), r.PathValue("ref"), req.Name)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"checkpoint": name})
+	writeJSON(w, http.StatusCreated, map[string]string{"snapshot": name})
 }
 
-func (s *Server) handleCheckpointCopy(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSnapshotCopy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -403,7 +425,7 @@ func (s *Server) handleCheckpointCopy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-	sb, err := s.rt.CheckpointCopy(r.Context(), r.PathValue("ref"), req.Name)
+	sb, err := s.rt.SnapshotCopy(r.Context(), r.PathValue("ref"), req.Name)
 	if err != nil {
 		writeErr(w, err)
 		return

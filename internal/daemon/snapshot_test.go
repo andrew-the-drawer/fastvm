@@ -9,7 +9,7 @@ import (
 	"fastvm/internal/types"
 )
 
-func TestPatchCheckpointConfigRewritesHostPaths(t *testing.T) {
+func TestPatchSnapshotConfigRewritesHostPaths(t *testing.T) {
 	dir := t.TempDir()
 	original := map[string]any{
 		"payload": map[string]any{
@@ -33,7 +33,7 @@ func TestPatchCheckpointConfigRewritesHostPaths(t *testing.T) {
 		SerialPath: "/new/serial.log", VsockUDPath: "/new/vsock.sock",
 		TAPName: "tap-new", MAC: "76:aa:00:00:00:01",
 	}
-	if err := patchCheckpointConfig(dir, sb); err != nil {
+	if err := patchSnapshotConfig(dir, sb); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
 	patched, err := os.ReadFile(filepath.Join(dir, "config.json"))
@@ -64,13 +64,13 @@ func TestPatchCheckpointConfigRewritesHostPaths(t *testing.T) {
 	}
 }
 
-func TestPatchCheckpointConfigRemovesNIC(t *testing.T) {
+func TestPatchSnapshotConfigRemovesNIC(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte(`{"net":[{"tap":"tap-old"}]}`)
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := patchCheckpointConfig(dir, &types.Sandbox{ID: "new"}); err != nil {
+	if err := patchSnapshotConfig(dir, &types.Sandbox{ID: "new"}); err != nil {
 		t.Fatal(err)
 	}
 	out, err := os.ReadFile(filepath.Join(dir, "config.json"))
