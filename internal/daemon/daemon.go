@@ -178,6 +178,7 @@ type runtime struct {
 	execActive   int
 	workload     []string
 	workloadEnv  map[string]string
+	userData     string
 	guestBusy    bool
 	warmupUntil  time.Time
 	idleSince    time.Time
@@ -211,6 +212,9 @@ func (d *Daemon) newRuntime(id string) *runtime {
 // --- manager.Runtime -------------------------------------------------------
 
 func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.Sandbox, error) {
+	if opts.FromSnapshot != "" && opts.UserData != "" {
+		return types.Sandbox{}, fmt.Errorf("%w: user_data cannot be combined with from_snapshot", manager.ErrInvalid)
+	}
 	if opts.FromSnapshot != "" {
 		path, err := d.resolveSnapshotName(opts.FromSnapshot)
 		if err != nil {
@@ -236,6 +240,14 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 		return types.Sandbox{}, err
 	}
 	start := opts.Start == nil || *opts.Start
+	if opts.UserData != "" {
+		if !start {
+			return types.Sandbox{}, fmt.Errorf("%w: user_data requires start", manager.ErrInvalid)
+		}
+		if len(opts.UserData) > types.MaxUserDataBytes {
+			return types.Sandbox{}, fmt.Errorf("%w: user_data exceeds %d bytes", manager.ErrInvalid, types.MaxUserDataBytes)
+		}
+	}
 	networkEnabled := opts.NetworkEnabled == nil || *opts.NetworkEnabled
 	base, err := d.img.Get(ctx, opts.Image)
 	if err != nil {
@@ -267,8 +279,7 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	rt.sb = sb
 	rt.workload = append([]string(nil), opts.Cmd...)
 	rt.workloadEnv = opts.Env
-	rt.workload = append([]string(nil), opts.Cmd...)
-	rt.workloadEnv = opts.Env
+	rt.userData = opts.UserData
 
 	vol, err := d.vol.Create(ctx, id, base, 0, d.cfg.Volume.COW) // 0 = use base disk size
 	if err != nil {
@@ -400,6 +411,16 @@ func (d *Daemon) bootLocked(ctx context.Context, rt *runtime) error {
 		sb.State = types.StateFailed
 		sb.Error = err.Error()
 		return err
+	}
+	if rt.userData != "" {
+		if err := d.runUserData(ctx, ac, rt.userData, rt.workloadEnv); err != nil {
+			_ = vm.Stop(context.Background())
+			d.event(ctx, sb.ID, "error", "user_data: "+err.Error())
+			sb.State = types.StateFailed
+			sb.Error = err.Error()
+			return err
+		}
+		rt.userData = ""
 	}
 	now := d.now()
 	sb.State = types.StateRunning

@@ -146,6 +146,7 @@ func newRunCmd() *cobra.Command {
 	var image, name, file, fromSnapshot string
 	var vcpus, memory int
 	var publishes, envs, volumes []string
+	var userData string
 	var detach, noStart bool
 	var opts networkOptions
 	cmd := &cobra.Command{
@@ -233,6 +234,10 @@ sandbox running and prints its ID/state/name.`,
 				ports, env, vols = spec.Ports, spec.Env, spec.Volumes
 				opts.net, opts.noNet, opts.allowHosts = spec.NetworkEnabled, false, spec.AllowHosts
 				noAutoSleep = spec.NoAutoSleep
+				userData = spec.UserData
+				if noStart && spec.UserData != "" {
+					return errors.New("--no-start cannot be combined with user_data")
+				}
 				if len(runArgs) == 0 {
 					runArgs = spec.Command
 				}
@@ -279,6 +284,7 @@ sandbox running and prints its ID/state/name.`,
 				"ports": ports, "volumes": vols, "cmd": workload, "env": env,
 				"no_auto_sleep": noAutoSleep, "start": !noStart,
 				"network_enabled": opts.enabled(), "allow_hosts": opts.allowHosts,
+				"user_data": userData,
 			}
 			var sb types.Sandbox
 			if err := do(http.MethodPost, "/v1/sandboxes", body, &sb); err != nil {

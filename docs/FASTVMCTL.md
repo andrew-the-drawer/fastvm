@@ -94,10 +94,6 @@ Global socket selection: `--socket <path>` before the command, or
   `run --name <ref>` boots/wakes an existing sandbox.
 - `resume` makes an existing sandbox active: `Created` -> boot, `Paused` ->
   wake, `Dormant` -> restore.
-- On-demand image builds show a Bubbles v2 spinner with elapsed time on an
-  interactive terminal. Non-TTY/CI invocations get a single status line on
-  stderr instead, so stdout stays parseable. Use `image build` for explicit
-  Dockerfile builds.
 - `save <sandbox>` writes `snapshot.json`, `snapshot/` (CH config, memory,
   CPU state) and `disk.img` under `<data_dir>/snapshots/<generated-name>`,
   then prints the generated name. Running sandboxes are paused only for the

@@ -1,24 +1,27 @@
-# Claude Code coding-agent sandbox.
+# Anthropic Claude Code coding-agent sandbox.
 #
 #   export ANTHROPIC_API_KEY=...
 #   fastvmctl run -f hack/claude.fvmfile -it
 #
-# Uses the public Docker Hardened Images Claude image; ensure Docker can pull it.
+# Starts from the normal Node.js image and installs Claude Code on first boot.
 version: 1
 name: claude
-image: dhi.io/claude
-command: ["claude", "--dangerously-skip-permissions"]
+image: node:24
+command: ["claude"]
+
+user_data: |
+  #!/bin/sh
+  set -eu
+  npm install -g --no-fund --no-audit @anthropic-ai/claude-code
 
 # ${NAME} values are expanded from the host environment.
 env:
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
-  DISABLE_AUTOUPDATER: 1
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
 
 network:
   enabled: true
-  # Optional; omit allow_hosts for unrestricted egress.
   allow_hosts:
+    - registry.npmjs.org
     - api.anthropic.com
 
 resources:

@@ -19,16 +19,18 @@ import (
 // The file is strict YAML (unknown keys are rejected). Host environment
 // references of the form ${NAME} are expanded in env values.
 type FVMFile struct {
-	Version     int               `yaml:"version"`
-	Name        string            `yaml:"name"`
-	Image       string            `yaml:"image"`
-	Command     []string          `yaml:"command"`
-	Env         map[string]string `yaml:"env"`
-	Volumes     []FVMVolume       `yaml:"volumes"`
-	Ports       []FVMPort         `yaml:"ports"`
-	Network     *FVMNetwork       `yaml:"network"`
-	Resources   *FVMResources     `yaml:"resources"`
-	NoAutoSleep bool              `yaml:"no_auto_sleep"`
+	Version      int               `yaml:"version"`
+	Name         string            `yaml:"name"`
+	Image        string            `yaml:"image"`
+	Command      []string          `yaml:"command"`
+	Env          map[string]string `yaml:"env"`
+	Volumes      []FVMVolume       `yaml:"volumes"`
+	Ports        []FVMPort         `yaml:"ports"`
+	Network      *FVMNetwork       `yaml:"network"`
+	Resources    *FVMResources     `yaml:"resources"`
+	NoAutoSleep  bool              `yaml:"no_auto_sleep"`
+	UserData     string            `yaml:"user_data"`
+	UserDataFile string            `yaml:"user_data_file"`
 }
 
 type FVMVolume struct {
@@ -66,6 +68,7 @@ type FVMSpec struct {
 	NetworkEnabled bool
 	AllowHosts     []string
 	NoAutoSleep    bool
+	UserData       string
 }
 
 var fvmEnvRefRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -107,6 +110,40 @@ func LoadFVMFile(path string) (FVMSpec, error) {
 	}
 	if doc.NoAutoSleep {
 		spec.NoAutoSleep = true
+	}
+	if doc.UserData != "" && doc.UserDataFile != "" {
+		return FVMSpec{}, errors.New("fvmfile: user_data and user_data_file are mutually exclusive")
+	}
+	if doc.UserDataFile != "" {
+		p := doc.UserDataFile
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(baseDir, p)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			return FVMSpec{}, fmt.Errorf("fvmfile: read user_data_file: %w", err)
+		}
+		if info.Size() > types.MaxUserDataBytes {
+			return FVMSpec{}, fmt.Errorf("fvmfile: user_data_file exceeds %d bytes", types.MaxUserDataBytes)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return FVMSpec{}, fmt.Errorf("fvmfile: read user_data_file: %w", err)
+		}
+		if strings.TrimSpace(string(data)) == "" {
+			return FVMSpec{}, errors.New("fvmfile: user_data_file is empty")
+		}
+		spec.UserData = string(data)
+	} else {
+		spec.UserData = doc.UserData
+	}
+	if spec.UserData != "" {
+		if strings.TrimSpace(spec.UserData) == "" {
+			return FVMSpec{}, errors.New("fvmfile: user_data is empty")
+		}
+		if len(spec.UserData) > types.MaxUserDataBytes {
+			return FVMSpec{}, fmt.Errorf("fvmfile: user_data exceeds %d bytes", types.MaxUserDataBytes)
+		}
 	}
 	if len(doc.Env) > 0 {
 		spec.Env = make(map[string]string, len(doc.Env))

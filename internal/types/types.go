@@ -5,6 +5,10 @@ import "time"
 
 // State is a sandbox lifecycle state (docs/DESIGN.md §5.1).
 
+// MaxUserDataBytes bounds cloud-init-style user_data scripts accepted by the
+// daemon and the .fvmfile loader.
+const MaxUserDataBytes = 1 << 20
+
 // SnapshotInfo is one saved snapshot under the daemon data directory.
 type SnapshotInfo struct {
 	Name           string    `json:"name"`

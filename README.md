@@ -18,8 +18,9 @@ virtio-fs.
   `-d` keeps it, and `resume` boots/wakes it later.
 - **Self-managing.** Idle → pause → dormant RAM snapshot → wake on network.
 - **On-demand images.** First use of a Docker image builds and caches a bootable
-  disk, with a Bubbles progress spinner.
+  disk automatically.
 - **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
+- **First-boot setup.** Run a cloud-init-style `user_data` script before the sandbox command.
 - **Snapshots.** Save RAM/CPU/disk and restore independent copies.
 - **Volumes and ports.** virtio-fs host mounts and nftables published ports.
 - **Declarative configs and console.** Run `.fvmfile` sandboxes (e.g. coding
@@ -57,10 +58,10 @@ fastvmctl run --net --image alpine --allow-host example.com -- \
   wget -T 2 -t 1 -qO- https://google.com
 ```
 
-On-demand image builds show a Bubbles progress display. Host volumes, published
-ports, snapshots, and declarative configs are covered in
-[docs/FASTVMCTL.md](docs/FASTVMCTL.md) and
-[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+Host volumes, published ports, snapshots, and declarative configs are covered
+in [docs/FASTVMCTL.md](docs/FASTVMCTL.md); see
+[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for the full walkthrough and
+[docs/FVMFILE.md](docs/FVMFILE.md) for the config format.
 
 ## Snapshots
 

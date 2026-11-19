@@ -31,6 +31,8 @@ type CreateOptions struct {
 	// When set, Image is ignored and the snapshot manifest supplies the base
 	// image.
 	FromSnapshot string
+	// UserData is a shell script run once after the first boot, before Cmd.
+	UserData string
 }
 
 // Runtime is the daemon-facing sandbox API.

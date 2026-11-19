@@ -22,7 +22,7 @@ func TestLoadFVMFile(t *testing.T) {
 	path := writeFVMFile(t, dir, "codex.fvmfile", `
 version: 1
 name: codex
-image: dhi.io/codex
+image: node:24
 command: ["/usr/local/bin/codex"]
 env:
   TOKEN: "${FVM_TEST_TOKEN}"
@@ -45,7 +45,7 @@ no_auto_sleep: true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Name != "codex" || spec.Image != "dhi.io/codex" {
+	if spec.Name != "codex" || spec.Image != "node:24" {
 		t.Fatalf("spec = %+v", spec)
 	}
 	if spec.Env["TOKEN"] != "secret-value" {
@@ -101,5 +101,38 @@ func TestLoadFVMFilePortsImplyNetwork(t *testing.T) {
 	}
 	if !spec.NetworkEnabled || len(spec.Ports) != 1 {
 		t.Fatalf("spec = %+v", spec)
+	}
+}
+
+func TestLoadFVMFileUserData(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "setup.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho installed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inline := writeFVMFile(t, dir, "inline.fvmfile", "image: node:24\nuser_data: |\n  #!/bin/sh\n  echo inline\n")
+	spec, err := LoadFVMFile(inline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(spec.UserData, "echo inline") {
+		t.Fatalf("inline user_data = %q", spec.UserData)
+	}
+	fromFile := writeFVMFile(t, dir, "file.fvmfile", "image: node:24\nuser_data_file: setup.sh\n")
+	spec, err = LoadFVMFile(fromFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.UserData != "#!/bin/sh\necho installed\n" {
+		t.Fatalf("file user_data = %q", spec.UserData)
+	}
+}
+
+func TestLoadFVMFileRejectsBothUserDataForms(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFVMFile(t, dir, "both.fvmfile", "image: alpine\nuser_data: echo hi\nuser_data_file: setup.sh\n")
+	_, err := LoadFVMFile(path)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("err = %v", err)
 	}
 }

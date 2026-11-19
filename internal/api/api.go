@@ -201,6 +201,7 @@ type createReq struct {
 	NetworkEnabled *bool               `json:"network_enabled"`
 	AllowHosts     []string            `json:"allow_hosts"`
 	FromSnapshot   string              `json:"from_snapshot"`
+	UserData       string              `json:"user_data"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +214,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Image: req.Image, VCPUs: req.VCPUs, MemoryMB: req.MemoryMB,
 		Ports: req.Ports, Volumes: req.Volumes, Cmd: req.Cmd, Env: req.Env, NoAutoSleep: req.NoAutoSleep,
 		Start: req.Start, NetworkEnabled: req.NetworkEnabled, AllowHosts: req.AllowHosts,
-		FromSnapshot: req.FromSnapshot,
+		FromSnapshot: req.FromSnapshot, UserData: req.UserData,
 	})
 	if err != nil {
 		writeErr(w, err)

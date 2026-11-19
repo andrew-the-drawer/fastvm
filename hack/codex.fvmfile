@@ -1,13 +1,18 @@
-# Codex coding-agent sandbox.
+# OpenAI Codex coding-agent sandbox.
 #
 #   export OPENAI_API_KEY=...
 #   fastvmctl run -f hack/codex.fvmfile -it
 #
-# Uses the public Docker Hardened Images Codex image; ensure Docker can pull it.
+# Starts from the normal Node.js image and installs the Codex CLI on first boot.
 version: 1
 name: codex
-image: dhi.io/codex
+image: node:24
 command: ["codex"]
+
+user_data: |
+  #!/bin/sh
+  set -eu
+  npm install -g --no-fund --no-audit @openai/codex
 
 # ${NAME} values are expanded from the host environment.
 env:
@@ -15,8 +20,8 @@ env:
 
 network:
   enabled: true
-  # Optional; omit allow_hosts for unrestricted egress.
   allow_hosts:
+    - registry.npmjs.org
     - api.openai.com
     - auth.openai.com
 
