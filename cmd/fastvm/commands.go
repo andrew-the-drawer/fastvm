@@ -217,7 +217,7 @@ sandbox running and prints its ID/state/name.`,
 			noAutoSleep := false
 
 			if file != "" {
-				for _, flagName := range []string{"image", "vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "no-auto-sleep"} {
+				for _, flagName := range []string{"image", "vcpus", "memory", "publish", "env", "net", "no-net", "allow-host", "no-auto-sleep"} {
 					if cobraCmd.Flags().Changed(flagName) {
 						return fmt.Errorf("--%s cannot be combined with --file", flagName)
 					}
@@ -232,6 +232,13 @@ sandbox running and prints its ID/state/name.`,
 				}
 				vcpus, memory = spec.VCPUs, spec.MemoryMB
 				ports, env, vols = spec.Ports, spec.Env, spec.Volumes
+				if len(volumes) > 0 {
+					extraVols, err := parseVolumes(volumes)
+					if err != nil {
+						return err
+					}
+					vols = append(vols, extraVols...)
+				}
 				opts.net, opts.noNet, opts.allowHosts = spec.NetworkEnabled, false, spec.AllowHosts
 				noAutoSleep = spec.NoAutoSleep
 				userData = spec.UserData

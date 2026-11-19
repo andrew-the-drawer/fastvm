@@ -9,6 +9,8 @@ fastvmctl run -f hack/codex.fvmfile -it
 fastvmctl run -f hack/codex.fvmfile -d
 # Claude example:
 fastvmctl run -f hack/claude.fvmfile -it
+# GitHub Copilot example:
+fastvmctl run -f hack/copilot.fvmfile -it
 # Node.js REPL example:
 fastvmctl run -f hack/nodejs.fvmfile -it
 # Docker-in-VM example:
@@ -64,8 +66,9 @@ no_auto_sleep: true
 | `user_data` | Shell script run once on first boot, before `entrypoint`/`command`. |
 | `user_data_file` | Script file, resolved relative to the `.fvmfile`. Mutually exclusive with `user_data`. |
 
-CLI `--name` still overrides the file name. Resource/network/volume/port/env
-flags are not combined with `-f`; put them in the file instead.
+CLI `--name` still overrides the file name. Resource/network/port/env flags are
+not combined with `-f`; put them in the file instead. Extra `--volume` flags may
+be added to a file run.
 
 ## Entrypoint and command
 

@@ -30,7 +30,7 @@ Longer-term ideas and research items. Check items off as they land.
 - [x] **Per-sandbox config file (e.g. `codex.fvmfile`)**
   - Strict YAML format with image, command, env (host `${VAR}` expansion), volumes, ports, network/allow-hosts, resources, and `no_auto_sleep`.
   - `fastvmctl run -f <file>`; documented in `docs/FVMFILE.md`.
-  - Added examples: `hack/hello.fvmfile`, `hack/codex.fvmfile`, `hack/claude.fvmfile`, `hack/nodejs.fvmfile`.
+  - Added examples: `hack/hello.fvmfile`, `hack/codex.fvmfile`, `hack/claude.fvmfile`, `hack/copilot.fvmfile`, `hack/nodejs.fvmfile`.
   - `template` subcommand and `hack/templates` removed; examples live in `hack/*.fvmfile`.
   - Added `user_data` / `user_data_file` cloud-init-style first-boot scripts.
   - Added `hack/docker.fvmfile` (Docker-in-VM); validate it against a host that can pull `docker:27-dind`.

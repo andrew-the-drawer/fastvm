@@ -328,6 +328,7 @@ Examples live next to the repo tooling:
 - [`hack/codex.fvmfile`](../hack/codex.fvmfile) — OpenAI Codex coding-agent shape
   with env/network/resource settings
 - [`hack/claude.fvmfile`](../hack/claude.fvmfile) — Anthropic Claude Code shape
+- [`hack/copilot.fvmfile`](../hack/copilot.fvmfile) — GitHub Copilot CLI shape
 - [`hack/nodejs.fvmfile`](../hack/nodejs.fvmfile) — Node.js REPL sandbox
 - [`hack/docker.fvmfile`](../hack/docker.fvmfile) — Docker-in-VM (dind) sandbox; the pinned kernel has no iptables/bridge modules, so dockerd runs with `--bridge=none --iptables=false` and nested containers use `--network host`
 

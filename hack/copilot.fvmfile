@@ -1,0 +1,34 @@
+# GitHub Copilot CLI coding-agent sandbox.
+#
+#   export GITHUB_TOKEN=...
+#   fastvmctl run -f hack/copilot.fvmfile -it
+#
+# Starts from the normal Node.js image and installs the Copilot CLI on first boot.
+version: 1
+name: copilot
+image: node:26
+entrypoint: ["copilot"]
+
+user_data: |
+  #!/bin/sh
+  set -eu
+  npm install -g --no-fund --no-audit @github/copilot
+
+# ${NAME} values are expanded from the host environment.
+env:
+  GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+network:
+  enabled: true
+  allow_hosts:
+    - registry.npmjs.org
+    - api.github.com
+    - github.com
+    - api.githubcopilot.com
+    - api.individual.githubcopilot.com
+
+resources:
+  vcpus: 2
+  memory_mb: 4096
+
+no_auto_sleep: true
