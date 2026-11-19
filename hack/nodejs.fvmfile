@@ -5,7 +5,7 @@
 # The official Node image is built into a bootable disk on demand.
 version: 1
 name: nodejs
-image: node:24-alpine
+image: node:26-alpine
 command: ["node"]
 
 resources:

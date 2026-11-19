@@ -6,7 +6,7 @@
 # Starts from the normal Node.js image and installs Claude Code on first boot.
 version: 1
 name: claude
-image: node:24
+image: node:26
 command: ["claude"]
 
 user_data: |

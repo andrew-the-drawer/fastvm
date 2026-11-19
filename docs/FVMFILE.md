@@ -20,7 +20,7 @@ fastvmctl run -d -f hack/docker.fvmfile
 ```yaml
 version: 1
 name: codex
-image: node:24
+image: node:26
 command: ["codex"]
 
 user_data: |
