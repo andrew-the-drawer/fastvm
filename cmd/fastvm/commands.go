@@ -124,7 +124,7 @@ func addNetworkFlags(cmd *cobra.Command, opts *networkOptions) {
 	cmd.Flags().BoolVar(&opts.net, "net", false, "enable networking (default: off)")
 	cmd.Flags().BoolVar(&opts.noNet, "no-net", false, "explicitly disable networking")
 	cmd.Flags().StringArrayVar(&opts.allowHosts, "allow-host", nil,
-		"allow egress only to this host (repeatable; requires --net)")
+		"allow egress only to this host (repeatable; implies --net)")
 	cmd.Flags().BoolVar(&opts.noAutoSleep, "no-auto-sleep", false, "never auto-sleep")
 }
 
@@ -134,8 +134,11 @@ func (o *networkOptions) validate(cmdName string) error {
 	if o.net && o.noNet {
 		return fmt.Errorf("%s: --net and --no-net are mutually exclusive", cmdName)
 	}
-	if len(o.allowHosts) > 0 && !o.enabled() {
-		return fmt.Errorf("%s: --allow-host requires --net", cmdName)
+	if len(o.allowHosts) > 0 {
+		if o.noNet {
+			return fmt.Errorf("%s: --allow-host cannot be combined with --no-net", cmdName)
+		}
+		o.net = true
 	}
 	return nil
 }

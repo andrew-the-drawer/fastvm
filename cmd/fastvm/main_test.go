@@ -43,3 +43,17 @@ func TestParseEnvs(t *testing.T) {
 		t.Fatalf("nil envs = %v, %v", env, err)
 	}
 }
+
+func TestAllowHostImpliesNet(t *testing.T) {
+	o := networkOptions{allowHosts: []string{"example.com"}}
+	if err := o.validate("run"); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if !o.net || o.noNet || !o.enabled() {
+		t.Fatalf("allow-host did not imply net: %+v", o)
+	}
+	o = networkOptions{noNet: true, allowHosts: []string{"example.com"}}
+	if err := o.validate("run"); err == nil {
+		t.Fatal("allow-host + no-net should fail")
+	}
+}

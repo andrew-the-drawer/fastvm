@@ -35,8 +35,8 @@ fastvmctl run -d --net --image alpine -- uname -a
 fastvmctl run --net -it --image alpine -- /bin/sh
 
 # Egress allowlist: only the named hosts (plus DNS and established traffic)
-# can be reached. Requires bridge switch mode.
-fastvmctl run --net --allow-host registry.npmjs.org --image alpine -- wget -qO- https://google.com
+# can be reached. --allow-host implies --net. Requires bridge switch mode.
+fastvmctl run --allow-host registry.npmjs.org --image alpine -- wget -qO- https://google.com
 
 # Declarative sandbox config
 fastvmctl run -f hack/codex.fvmfile -it

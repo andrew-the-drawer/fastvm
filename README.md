@@ -54,7 +54,7 @@ fastvmctl resume dev
 fastvmctl rm dev
 
 # egress allowlist: only example.com is reachable; google.com fails fast
-fastvmctl run --net --image alpine --allow-host example.com -- \
+fastvmctl run --image alpine --allow-host example.com -- \
   wget -T 2 -t 1 -qO- https://google.com
 ```
 
