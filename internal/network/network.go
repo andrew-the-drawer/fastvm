@@ -181,6 +181,12 @@ func DefaultOptions() Options {
 
 // NewManager constructs the network Manager for the configured switch mode.
 func NewManager(opts Options) (Manager, error) {
+	if opts.CIDR == "" {
+		opts.CIDR = "10.77.0.0/16"
+	}
+	if err := ensureGuestCIDRRule(opts.CIDR); err != nil {
+		return nil, err
+	}
 	if opts.SwitchMode == "ebpf" {
 		return newEBPFManager(opts)
 	}

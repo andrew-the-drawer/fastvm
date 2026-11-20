@@ -16,6 +16,27 @@ const autoPublishInterval = 1 * time.Second
 // autoPublishLoop periodically discovers guest TCP listeners and maps each one
 // 1:1 onto the same loopback host port. Occupied host ports are skipped (with a
 // warning) and retried later; they are never reassigned to another port.
+// startAutoPublishLoop starts the discovery loop once per runtime. It is called
+// on creation and when a runtime is adopted after a daemon restart, so resume
+// and dormant wake paths get discovery without requiring a new sandbox.
+func (d *Daemon) startAutoPublishLoop(rt *runtime) {
+	rt.mu.Lock()
+	if rt.autoLoopStarted || !rt.sb.AutoPublish || rt.closed {
+		rt.mu.Unlock()
+		return
+	}
+	rt.autoLoopStarted = true
+	if rt.autoHost == nil {
+		rt.autoHost = make(map[int]int)
+	}
+	if rt.autoWarnedPorts == nil {
+		rt.autoWarnedPorts = make(map[int]bool)
+	}
+	rt.mu.Unlock()
+	d.wg.Add(1)
+	go d.autoPublishLoop(rt)
+}
+
 func (d *Daemon) autoPublishLoop(rt *runtime) {
 	defer d.wg.Done()
 	ticker := time.NewTicker(autoPublishInterval)

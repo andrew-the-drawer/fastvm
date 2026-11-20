@@ -1161,3 +1161,39 @@ func TestAutoPublishSkipsOccupiedPortThenRetries(t *testing.T) {
 	}
 	t.Fatal("occupied port was not published after it became free")
 }
+
+func TestAutoPublishLoopStartsForAdoptedRuntime(t *testing.T) {
+	h := newHarness(t)
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "adopted", Image: "img:test",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	rt := h.runtime(t, sb.ID)
+	rt.mu.Lock()
+	rt.sb.AutoPublish = true
+	rt.autoLoopStarted = false
+	rt.mu.Unlock()
+	h.d.startAutoPublishLoop(rt)
+	a := h.dial.last()
+	a.mu.Lock()
+	a.ports = []int{18082}
+	a.mu.Unlock()
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		h.net.mu.Lock()
+		var got []types.PortMapping
+		if n := len(h.net.portSets); n > 0 {
+			got = append(got, h.net.portSets[n-1]...)
+		}
+		h.net.mu.Unlock()
+		for _, p := range got {
+			if p.GuestPort == 18082 && p.HostPort == 18082 && p.LoopbackOnly {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("adopted runtime did not start auto-publish discovery")
+}

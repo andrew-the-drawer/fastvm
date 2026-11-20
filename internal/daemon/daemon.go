@@ -187,6 +187,7 @@ type runtime struct {
 	autoHost        map[int]int
 	autoWarnedPorts map[int]bool
 	autoWarned      bool
+	autoLoopStarted bool
 	guestBusy       bool
 	warmupUntil     time.Time
 	idleSince       time.Time
@@ -390,10 +391,7 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	d.mu.Unlock()
 	d.wg.Add(1)
 	go d.monitor(rt)
-	if rt.sb.AutoPublish {
-		d.wg.Add(1)
-		go d.autoPublishLoop(rt)
-	}
+	d.startAutoPublishLoop(rt)
 	return sbOut, nil
 }
 
@@ -1376,6 +1374,7 @@ func (d *Daemon) runtimeFor(ctx context.Context, ref string) (*runtime, error) {
 		rt.sb = sb
 	}
 	rt.mu.Unlock()
+	d.startAutoPublishLoop(rt)
 	return rt, nil
 }
 
