@@ -524,10 +524,9 @@ func mergeVolumes(base, extra []types.Volume) []types.Volume {
 
 func newListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"list"},
-		Short:   "List sandboxes",
-		Args:    cobra.NoArgs,
+		Use:   "ps",
+		Short: "List sandboxes",
+		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			var list []types.Sandbox
 			if err := getJSON("/v1/sandboxes", &list); err != nil {

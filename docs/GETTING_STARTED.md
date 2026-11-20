@@ -195,7 +195,7 @@ bin/fastvmctl run -d \
   -- /bin/sh -c 'while true; do sleep 5; done'
 # 82090a0f3d5e7805896a0a8d	Running	demo
 
-bin/fastvmctl ls
+bin/fastvmctl ps
 # ID            NAME  STATE    IMAGE         IP         VCPUS  MEM
 # 82090a0f3d5e  demo  Running  sha256:ba919  10.77.0.2  2      512M
 ```
@@ -307,7 +307,7 @@ bin/fastvmctl events -n 12
 # 13:33:53.407  demo  <id>          state  Running: woken
 
 bin/fastvmctl rm demo     # stops VMM, deletes TAP/network, volume, memory image, record
-bin/fastvmctl ls          # empty
+bin/fastvmctl ps          # empty
 ```
 
 Stop the daemon with `Ctrl-C`; a graceful stop first snapshots active

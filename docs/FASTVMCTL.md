@@ -55,7 +55,7 @@ fastvmctl run --from-snapshot "$snapshot" --name agent2
 fastvmctl snapshot rm "$snapshot"          # delete when no longer needed
 
 # Existing commands
-fastvmctl ls
+fastvmctl ps
 fastvmctl get <ref>
 fastvmctl exec [-it] <ref> -- <cmd>...
 fastvmctl shell <ref>
