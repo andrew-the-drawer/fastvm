@@ -506,7 +506,8 @@ actual VMM process on startup.
 
 **Pull** → OCI image → unpack rootfs → inject guest agent + init config →
 `mke2fs -d` → content-addressed base disk (sha256) → cache; `fastvm image
-pull`/`image ls` expose it.
+pull`/`image ls` expose it. Compressed layers are cached by digest and reused
+across images.
 
 **Cold start** → base-disk digest resolve → CoW runtime volume clone
 (reflink/dm-thin, milliseconds) → switch port (static MAC + /30 address) →
@@ -609,7 +610,8 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
   init configuration, and creates the disk with `mke2fs -d`. The result is content-addressed (sha256), read-only, and shared
   by every sandbox using that image; the pinned kernel stays separate.
 - **Pull pipeline:** `fastvm image pull name:tag` → OCI registry → rootfs →
-  base disk; `fastvm image ls` lists disks and digests. The base-disk cache is
+  base disk; compressed layers are cached by digest and reused across images.
+  `fastvm image ls` lists disks and digests. The base-disk cache is
   content-keyed, so unchanged pulls are cheap, and a sandbox keeps the base
   digest it was created with even after a newer image is pulled.
 - **CoW runtime volumes.** Each sandbox gets a writable raw volume cloned from

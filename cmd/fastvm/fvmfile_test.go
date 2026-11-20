@@ -22,7 +22,7 @@ func TestLoadFVMFile(t *testing.T) {
 	path := writeFVMFile(t, dir, "codex.fvmfile", `
 version: 1
 name: codex
-image: node:26
+image: node:26-slim
 entrypoint: ["/usr/local/bin/codex"]
 command: ["--help"]
 env:
@@ -46,7 +46,7 @@ no_auto_sleep: true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Name != "codex" || spec.Image != "node:26" {
+	if spec.Name != "codex" || spec.Image != "node:26-slim" {
 		t.Fatalf("spec = %+v", spec)
 	}
 	if len(spec.Entrypoint) != 1 || spec.Entrypoint[0] != "/usr/local/bin/codex" || len(spec.Command) != 1 || spec.Command[0] != "--help" {
@@ -114,7 +114,7 @@ func TestLoadFVMFileUserData(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho installed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inline := writeFVMFile(t, dir, "inline.fvmfile", "image: node:26\nuser_data: |\n  #!/bin/sh\n  echo inline\n")
+	inline := writeFVMFile(t, dir, "inline.fvmfile", "image: node:26-slim\nuser_data: |\n  #!/bin/sh\n  echo inline\n")
 	spec, err := LoadFVMFile(inline)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestLoadFVMFileUserData(t *testing.T) {
 	if !strings.Contains(spec.UserData, "echo inline") {
 		t.Fatalf("inline user_data = %q", spec.UserData)
 	}
-	fromFile := writeFVMFile(t, dir, "file.fvmfile", "image: node:26\nuser_data_file: setup.sh\n")
+	fromFile := writeFVMFile(t, dir, "file.fvmfile", "image: node:26-slim\nuser_data_file: setup.sh\n")
 	spec, err = LoadFVMFile(fromFile)
 	if err != nil {
 		t.Fatal(err)

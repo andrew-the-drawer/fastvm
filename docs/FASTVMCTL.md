@@ -63,7 +63,7 @@ fastvmctl pause <ref> [--deep]
 fastvmctl resume <ref>
 fastvmctl rm <ref>...
 fastvmctl events [-n N]
-fastvmctl image <pull|ls|rm>
+fastvmctl image <pull|push|ls|rm>
 fastvmctl version
 ```
 
@@ -107,7 +107,10 @@ Global socket selection: `--socket <path>` before the command, or
   networking) and a new hostname via the guest agent. The base image referenced
   by the snapshot must still exist in the image store. Multiple independent
   sandboxes can be restored from the same snapshot.
-- Images are cached by OCI reference; use `image ls` to inspect them.
+- Images are cached by OCI reference; compressed layers are cached by digest
+  under `<data_dir>/images/blobs` and shared across image pulls; deleting one
+  blob only forces that blob to be downloaded again. Use `image ls` to inspect
+  base disks.
   Rebuild base images after changing the guest agent (snapshot restores use
   the agent's `network`/`hostname` ops for the new sandbox identity).
 - Build identity is included in `version`/`--version`

@@ -18,7 +18,7 @@ virtio-fs.
   `-d` keeps it, and `resume` boots/wakes it later.
 - **Self-managing.** Idle → pause → dormant RAM snapshot → wake on network.
 - **On-demand images.** First use of an OCI image pulls it and caches a bootable
-  disk automatically.
+  disk automatically; compressed layers are shared across images.
 - **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
 - **First-boot setup.** Run a cloud-init-style `user_data` script before the sandbox command.
 - **Snapshots.** Save RAM/CPU/disk and restore independent copies.

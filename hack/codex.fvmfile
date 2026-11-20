@@ -6,7 +6,7 @@
 # Starts from the normal Node.js image and installs the Codex CLI on first boot.
 version: 1
 name: codex
-image: node:26
+image: node:26-slim
 entrypoint: ["codex"]
 
 user_data: |

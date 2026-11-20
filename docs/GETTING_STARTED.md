@@ -153,8 +153,12 @@ How it works: fastvm talks directly to the OCI registry (no Docker daemon or
 CLI), flattens the image layers into a rootfs, injects the guest agent + init,
 and creates a **content-addressed ext4 base disk** in `$DATA_DIR/images/`.
 Identical inputs hit the cache; the base disk is read-only and shared by
-sandboxes. Registry credentials are read from the Docker config keychain
-(`~/.docker/config.json`), so private registries work without the Docker daemon.
+sandboxes. Compressed layers are cached by digest under
+`<data_dir>/images/blobs/` and reused across images, so pulling a new tag that
+shares base layers does not re-download them. If one cached blob is deleted, only
+that blob is fetched again. Registry credentials are read from
+the Docker config keychain (`~/.docker/config.json`), so private registries work
+without the Docker daemon.
 
 Optional flag: `--size-gb N` (base disk size, default 8 GiB). Remove an image
 once no sandbox references it; `--force` overrides the reference check and

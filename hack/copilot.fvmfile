@@ -6,7 +6,7 @@
 # Starts from the normal Node.js image and installs the Copilot CLI on first boot.
 version: 1
 name: copilot
-image: node:26
+image: node:26-slim
 entrypoint: ["copilot"]
 
 user_data: |

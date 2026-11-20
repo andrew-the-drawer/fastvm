@@ -46,6 +46,23 @@ func extractTar(dest string, r io.Reader) error {
 		if name == "" {
 			continue
 		}
+		base := path.Base(name)
+		dir := path.Dir(name)
+		if base == ".wh..wh..opq" {
+			if err := removeChildren(root, dir); err != nil {
+				return fmt.Errorf("opaque whiteout %q: %w", name, err)
+			}
+			continue
+		}
+		if strings.HasPrefix(base, ".wh.") {
+			target := path.Join(dir, strings.TrimPrefix(base, ".wh."))
+			if target != "." && target != "" {
+				if err := root.RemoveAll(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return fmt.Errorf("whiteout %q: %w", target, err)
+				}
+			}
+			continue
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			mode := tarDirMode(hdr.Mode)
@@ -122,6 +139,39 @@ func extractTar(dest string, r io.Reader) error {
 	for _, d := range dirs {
 		if err := root.Chmod(d.path, d.mode); err != nil {
 			return fmt.Errorf("chmod %q: %w", d.path, err)
+		}
+	}
+	return nil
+}
+
+// removeChildren removes all entries below dir for OCI opaque whiteouts.
+func removeChildren(root *os.Root, dir string) error {
+	if dir == "." {
+		dir = ""
+	}
+	openDir := dir
+	if openDir == "" {
+		openDir = "."
+	}
+	f, err := root.Open(openDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	entries, err := f.ReadDir(-1)
+	_ = f.Close()
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if dir != "" {
+			name = path.Join(dir, name)
+		}
+		if err := root.RemoveAll(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 	}
 	return nil

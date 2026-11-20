@@ -22,7 +22,7 @@ fastvmctl run -d -f hack/docker.fvmfile
 ```yaml
 version: 1
 name: codex
-image: node:26
+image: node:26-slim
 entrypoint: ["codex"]
 
 user_data: |
@@ -78,7 +78,7 @@ These follow Docker's `ENTRYPOINT` / `CMD` split:
 
 ```yaml
 name: codex
-image: node:26
+image: node:26-slim
 entrypoint: ["codex"]
 command: ["--help"]
 ```
