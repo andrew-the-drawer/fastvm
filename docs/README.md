@@ -8,6 +8,7 @@
 | [Cloud Hypervisor migration](CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor: kernel, tooling, virtio-fs host volumes, verified spike |
 | [fastvmctl CLI](FASTVMCTL.md) | New CLI surface: on-demand images, network modes, run/resume lifecycle, snapshots |
 | [`.fvmfile` configs](FVMFILE.md) | Declarative sandbox configs and examples |
+| [Auto-publishing ports](AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on loopback |
 | [CoW volumes](SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification, snapshot/CoW checks |
 | [Web console](../console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy |
 

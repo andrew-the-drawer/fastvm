@@ -210,7 +210,7 @@ only the sandbox ID/state/name.
 image/fvmfile entrypoint) are available. Auto-published guest TCP listeners on
 ports >= 1024 map 1:1 to `127.0.0.1`; privileged ports require an explicit `-p`.
 Occupied host ports are skipped and retried, never reassigned. Inspect mappings
-with `fastvmctl get`.
+with `fastvmctl get`; see [auto-publishing ports](AUTO_PUBLISH.md).
 
 ### Host-directory volumes (virtio-fs)
 

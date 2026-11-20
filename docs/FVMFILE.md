@@ -62,7 +62,7 @@ no_auto_sleep: true
 | `ports` | `host`, `guest`, optional `protocol` (`tcp`/`udp`). |
 | `network.enabled` | Allocate a guest NIC. |
 | `network.allow_hosts` | Egress allowlist; implies `enabled: true`. |
-| `network.auto_publish` | Discover and publish guest TCP listening ports; implies `enabled: true`. |
+| `network.auto_publish` | Discover and publish guest TCP listeners; implies `enabled: true`. See [auto-publishing ports](AUTO_PUBLISH.md). |
 | `resources.vcpus` / `resources.memory_mb` | Sandbox sizing; 0 uses daemon defaults. |
 | `no_auto_sleep` | Disable automatic idle sleep. |
 | `user_data` | Shell script run once on first boot, before `entrypoint`/`command`. |

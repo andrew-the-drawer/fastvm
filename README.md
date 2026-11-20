@@ -9,7 +9,7 @@ themselves when a packet arrives — with the frame already queued in the guest'
 own virtio-net path. Host directories can be shared into a sandbox over
 virtio-fs.
 
-![fastvm console in light and dark themes](docs/console-themes.png)
+![fastvm console in light and dark themes](docs/CONSOLE_THEMES.png)
 
 ## Features
 
@@ -121,6 +121,7 @@ directly from OCI registries; no Docker daemon or CLI is required.
 | [Cloud Hypervisor migration](docs/CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor, kernel/tooling, virtio-fs volumes |
 | [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, snapshots |
 | [`.fvmfile` configs](docs/FVMFILE.md) | Declarative sandbox configs for coding agents and reproducible runs |
+| [Auto-publishing ports](docs/AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on 127.0.0.1 |
 | [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 
