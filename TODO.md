@@ -25,6 +25,25 @@ Longer-term ideas and research items. Check items off as they land.
     - egress proxy / eBPF-assisted credential injection for APIs
   - Add rotation, scoping to a sandbox, and redaction in logs/events.
 
+## Snapshots
+
+- [ ] **Make snapshot restores less restrictive**
+  - Current `run --from-snapshot` rejects most useful flags: ports, env,
+    volumes, network/allowlist changes, resources, entrypoint, workdir,
+    auto-publish, and `--no-auto-sleep`.
+  - Restored sandboxes also drop explicit port mappings, env, auto-publish, and
+    `no-auto-sleep` because they are not stored in the snapshot manifest.
+  - Decide what can safely be overridden after restore and what is fixed by the
+    snapshot (image, vCPUs, memory).
+  - Persist safe metadata (ports, auto-publish, `no-auto-sleep`) in the
+    manifest and re-apply it on restore.
+  - Allow safe post-restore overrides, e.g. `--publish`, `--env`,
+    `--auto-publish`, `--no-auto-sleep`, and workdir/command for the restored
+    workload.
+  - Consider host volumes explicitly: either support snapshot+restore with
+    volumes or keep rejecting them with a clear error.
+  - Add tests for restored ports, auto-publish, and network configuration.
+
 ## Declarative sandbox config
 
 - [x] **Per-sandbox config file (e.g. `codex.fvmfile`)**

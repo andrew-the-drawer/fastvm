@@ -122,6 +122,8 @@ directly from OCI registries; no Docker daemon or CLI is required.
 | [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, snapshots |
 | [`.fvmfile` configs](docs/FVMFILE.md) | Declarative sandbox configs for coding agents and reproducible runs |
 | [Auto-publishing ports](docs/AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on 127.0.0.1 |
+| [Snapshots](docs/SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |
+| [Sandbox lifecycle](docs/LIFECYCLE.md) | Running, idle, paused, dormant, wake, and auto-sleep |
 | [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 

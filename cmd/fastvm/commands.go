@@ -196,7 +196,7 @@ reassigned.`,
 				if file != "" || cobraCmd.Flags().Changed("image") {
 					return errors.New("--from-snapshot cannot be combined with --image or --file")
 				}
-				for _, flagName := range []string{"vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "no-auto-sleep", "entrypoint", "workdir"} {
+				for _, flagName := range []string{"vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "auto-publish", "no-auto-sleep", "entrypoint", "workdir"} {
 					if cobraCmd.Flags().Changed(flagName) {
 						return fmt.Errorf("--%s does not apply with --from-snapshot", flagName)
 					}
