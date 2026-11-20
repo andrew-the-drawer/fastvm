@@ -176,3 +176,15 @@ func TestLoadFVMFileRejectsRelativeWorkdir(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestLoadFVMFileAutoPublish(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFVMFile(t, dir, "auto.fvmfile", "image: alpine\nnetwork:\n  auto_publish: true\n")
+	spec, err := LoadFVMFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.AutoPublish || !spec.NetworkEnabled {
+		t.Fatalf("spec = %+v", spec)
+	}
+}

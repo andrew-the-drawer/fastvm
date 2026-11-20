@@ -231,6 +231,31 @@ func (m *ebpfManager) Create(ctx context.Context, req CreateRequest) (Port, erro
 	}, nil
 }
 
+func (m *ebpfManager) SetPorts(ctx context.Context, sandboxID string, ports []types.PortMapping) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validatePorts(ports); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
+	ep, ok := m.ports[sandboxID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, sandboxID)
+	}
+	if len(ports) > 0 {
+		if err := prepareNetns(true); err != nil {
+			return err
+		}
+	}
+	ep.alloc.ports = append([]types.PortMapping(nil), ports...)
+	return m.applyNFT(ctx, nil)
+}
+
 func (m *ebpfManager) Delete(ctx context.Context, sandboxID string) error {
 	if sandboxID == "" {
 		return errors.New("network: delete: sandbox ID must not be empty")
@@ -264,6 +289,7 @@ func (m *ebpfManager) nftSpec(except *ebpfPort) nftSpec {
 		for _, p := range ep.alloc.ports {
 			mappings = append(mappings, nftMapping{
 				GuestIP: ep.alloc.ip.String(), HostPort: p.HostPort, GuestPort: p.GuestPort, Proto: p.Proto,
+				LoopbackOnly: p.LoopbackOnly,
 			})
 		}
 	}

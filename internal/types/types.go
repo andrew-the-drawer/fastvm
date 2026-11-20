@@ -41,9 +41,10 @@ func (s State) Sleeping() bool { return s == StatePaused || s == StateDormant }
 
 // PortMapping maps a host port to a guest port.
 type PortMapping struct {
-	HostPort  int    `json:"host_port"`
-	GuestPort int    `json:"guest_port"`
-	Proto     string `json:"proto"` // "tcp" or "udp"
+	HostPort     int    `json:"host_port"`
+	GuestPort    int    `json:"guest_port"`
+	Proto        string `json:"proto"` // "tcp" or "udp"
+	LoopbackOnly bool   `json:"loopback_only,omitempty"`
 }
 
 // BaseDisk is a read-only, content-addressed ext4 image built from an OCI
@@ -69,6 +70,7 @@ type Sandbox struct {
 	MemoryMB       int           `json:"memory_mb"`
 	State          State         `json:"state"`
 	Workdir        string        `json:"workdir,omitempty"`
+	AutoPublish    bool          `json:"auto_publish,omitempty"`
 	NoAutoSleep    bool          `json:"no_auto_sleep"`
 	NetworkEnabled bool          `json:"network_enabled"`
 	AllowHosts     []string      `json:"allow_hosts,omitempty"`

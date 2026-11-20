@@ -192,6 +192,7 @@ type createReq struct {
 	Cmd            []string            `json:"cmd"`
 	Env            map[string]string   `json:"env"`
 	Workdir        string              `json:"workdir"`
+	AutoPublish    bool                `json:"auto_publish"`
 	NoAutoSleep    bool                `json:"no_auto_sleep"`
 	Volumes        []types.Volume      `json:"volumes"`
 	Start          *bool               `json:"start"`
@@ -209,7 +210,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	sb, err := s.rt.Create(r.Context(), manager.CreateOptions{
 		Name: req.Name, Image: req.Image, VCPUs: req.VCPUs, MemoryMB: req.MemoryMB,
-		Ports: req.Ports, Volumes: req.Volumes, Cmd: req.Cmd, Env: req.Env, Workdir: req.Workdir, NoAutoSleep: req.NoAutoSleep,
+		Ports: req.Ports, Volumes: req.Volumes, Cmd: req.Cmd, Env: req.Env, Workdir: req.Workdir, AutoPublish: req.AutoPublish, NoAutoSleep: req.NoAutoSleep,
 		Start: req.Start, NetworkEnabled: req.NetworkEnabled, AllowHosts: req.AllowHosts,
 		FromSnapshot: req.FromSnapshot, UserData: req.UserData,
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,7 @@ func (f *fakeVolumes) Get(context.Context, string) (volume.Volume, bool, error) 
 type fakeNet struct {
 	mu        sync.Mutex
 	created   map[string]network.CreateRequest
+	portSets  [][]types.PortMapping
 	deleted   []string
 	asleep    map[string]bool
 	wakeCh    chan network.WakeEvent
@@ -105,6 +107,12 @@ func (f *fakeNet) Create(_ context.Context, req network.CreateRequest) (network.
 		SandboxID: req.SandboxID, TAPName: "tap" + string(rune('0'+n)), MAC: "02:00:00:00:00:01",
 		IP: "10.77.0." + string(rune('1'+n)), Gateway: "10.77.0." + string(rune('0'+n)),
 	}, nil
+}
+func (f *fakeNet) SetPorts(_ context.Context, id string, ports []types.PortMapping) error {
+	f.mu.Lock()
+	f.portSets = append(f.portSets, append([]types.PortMapping(nil), ports...))
+	f.mu.Unlock()
+	return nil
 }
 func (f *fakeNet) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
@@ -233,6 +241,7 @@ type fakeAgent struct {
 	mu      sync.Mutex
 	ready   bool
 	envs    []map[string]string
+	ports   []int
 	execs   []agent.Request
 	events  chan agent.Event
 	closed  bool
@@ -252,6 +261,11 @@ func (a *fakeAgent) Exec(_ context.Context, req agent.Request) (agent.Response, 
 		return agent.Response{}, a.exitErr
 	}
 	return agent.Response{ID: req.ID, Stdout: a.stdout}, nil
+}
+func (a *fakeAgent) Ports(context.Context) ([]int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]int(nil), a.ports...), nil
 }
 func (a *fakeAgent) SetEnv(_ context.Context, env map[string]string) error {
 	a.mu.Lock()
@@ -1041,4 +1055,104 @@ func TestRemoveImageChecksSandboxReferences(t *testing.T) {
 	if len(h.imgs.removed) != 1 || h.imgs.removed[0] != "sha256:abc" {
 		t.Fatalf("fake image removals = %v, want sha256:abc", h.imgs.removed)
 	}
+}
+
+func TestAutoPublishPorts(t *testing.T) {
+	h := newHarness(t)
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "auto", Image: "img:test", AutoPublish: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	a := h.dial.last()
+	a.mu.Lock()
+	a.ports = []int{18080}
+	a.mu.Unlock()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		h.net.mu.Lock()
+		sets := len(h.net.portSets)
+		var got []types.PortMapping
+		if sets > 0 {
+			got = append(got, h.net.portSets[sets-1]...)
+		}
+		h.net.mu.Unlock()
+		if len(got) == 1 && got[0].GuestPort == 18080 && got[0].Proto == "tcp" && got[0].HostPort == 18080 && got[0].LoopbackOnly {
+			events, err := h.d.Events(context.Background(), 20)
+			if err != nil {
+				t.Fatalf("events: %v", err)
+			}
+			mapped := false
+			for _, ev := range events {
+				if ev.SandboxID == sb.ID && ev.Type == "port" && strings.Contains(ev.Message, "18080") && strings.Contains(ev.Message, "mapped") {
+					mapped = true
+				}
+			}
+			if !mapped {
+				t.Fatalf("no mapped event for port 18080: %+v", events)
+			}
+			if err := h.d.Delete(context.Background(), sb.ID); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("auto-publish did not publish guest port 18080")
+}
+
+func TestAutoPublishSkipsOccupiedPortThenRetries(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:18081")
+	if err != nil {
+		t.Skipf("cannot reserve test port: %v", err)
+	}
+	defer ln.Close()
+
+	h := newHarness(t)
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "auto-busy", Image: "img:test", AutoPublish: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	a := h.dial.last()
+	a.mu.Lock()
+	a.ports = []int{18081}
+	a.mu.Unlock()
+
+	time.Sleep(1500 * time.Millisecond)
+	h.net.mu.Lock()
+	early := len(h.net.portSets)
+	for _, set := range h.net.portSets {
+		for _, p := range set {
+			if p.HostPort == 18081 {
+				t.Fatalf("occupied port was published: %+v", p)
+			}
+		}
+	}
+	h.net.mu.Unlock()
+	_ = early
+
+	_ = ln.Close()
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		h.net.mu.Lock()
+		var got []types.PortMapping
+		for _, set := range h.net.portSets {
+			for _, p := range set {
+				if p.GuestPort == 18081 && p.HostPort == 18081 {
+					got = append(got, p)
+				}
+			}
+		}
+		h.net.mu.Unlock()
+		if len(got) > 0 {
+			_ = h.d.Delete(context.Background(), sb.ID)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("occupied port was not published after it became free")
 }

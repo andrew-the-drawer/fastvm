@@ -177,6 +177,31 @@ func (m *manager) Create(ctx context.Context, req CreateRequest) (Port, error) {
 	return m.portFor(alloc), nil
 }
 
+func (m *manager) SetPorts(ctx context.Context, sandboxID string, ports []types.PortMapping) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validatePorts(ports); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
+	alloc, ok := m.alloc.get(sandboxID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, sandboxID)
+	}
+	if len(ports) > 0 {
+		if err := prepareNetns(true); err != nil {
+			return err
+		}
+	}
+	alloc.ports = append([]types.PortMapping(nil), ports...)
+	return m.applyNFT(ctx, nil)
+}
+
 func (m *manager) Delete(ctx context.Context, sandboxID string) error {
 	if sandboxID == "" {
 		return errors.New("network: delete: sandbox ID must not be empty")

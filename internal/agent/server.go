@@ -187,6 +187,14 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 		}
 	case OpEnv:
 		s.setSandboxEnv(req.Env)
+	case OpPorts:
+		ports, err := listeningPorts()
+		if err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		} else {
+			resp.Ports = ports
+		}
 	case OpNetwork:
 		if err := s.configureNetwork(req.Network); err != nil {
 			resp.ExitCode = -1

@@ -410,6 +410,18 @@ func (cl *client) SetEnv(ctx context.Context, env map[string]string) error {
 	return nil
 }
 
+// Ports lists non-loopback TCP listening ports in the guest.
+func (cl *client) Ports(ctx context.Context) ([]int, error) {
+	resp, err := cl.request(ctx, Request{Op: OpPorts})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("agent: ports: %s", resp.Error)
+	}
+	return resp.Ports, nil
+}
+
 // SetNetwork reconfigures the guest NIC after a snapshot restore. address is
 // CIDR (e.g. "10.77.0.6/30"); gateway may be empty.
 func (cl *client) SetNetwork(ctx context.Context, address, gateway string) error {

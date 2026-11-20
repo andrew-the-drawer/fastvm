@@ -62,6 +62,7 @@ no_auto_sleep: true
 | `ports` | `host`, `guest`, optional `protocol` (`tcp`/`udp`). |
 | `network.enabled` | Allocate a guest NIC. |
 | `network.allow_hosts` | Egress allowlist; implies `enabled: true`. |
+| `network.auto_publish` | Discover and publish guest TCP listening ports; implies `enabled: true`. |
 | `resources.vcpus` / `resources.memory_mb` | Sandbox sizing; 0 uses daemon defaults. |
 | `no_auto_sleep` | Disable automatic idle sleep. |
 | `user_data` | Shell script run once on first boot, before `entrypoint`/`command`. |
@@ -88,6 +89,11 @@ command: ["--help"]
 - `command` is the default argument list, used when no CLI args are given.
 - CLI args after `--` replace `command` and are appended to `entrypoint`.
 - `-w/--workdir` sets the guest working directory for the command and shell.
+`--auto-publish` discovers guest TCP listeners and maps them 1:1 on
+`127.0.0.1` at the same host port. If that host port is occupied, the mapping is
+skipped, warned once, and retried later; it is never reassigned to another
+port. Mapping, unmapping, and skip decisions emit sandbox events (`fastvmctl
+events`).
 `-v/--volume` supports `host[:guest][:ro]`; a single host path mounts at the same
 path in the guest.
 - `--entrypoint <cmd>` overrides `entrypoint` for one run, like Docker:

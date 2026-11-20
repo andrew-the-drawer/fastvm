@@ -48,8 +48,9 @@ type FVMPort struct {
 }
 
 type FVMNetwork struct {
-	Enabled    *bool    `yaml:"enabled"`
-	AllowHosts []string `yaml:"allow_hosts"`
+	Enabled     *bool    `yaml:"enabled"`
+	AllowHosts  []string `yaml:"allow_hosts"`
+	AutoPublish bool     `yaml:"auto_publish"`
 }
 
 type FVMResources struct {
@@ -71,6 +72,7 @@ type FVMSpec struct {
 	Ports          []types.PortMapping
 	NetworkEnabled bool
 	AllowHosts     []string
+	AutoPublish    bool
 	NoAutoSleep    bool
 	UserData       string
 }
@@ -199,12 +201,13 @@ func LoadFVMFile(path string) (FVMSpec, error) {
 	}
 	if doc.Network != nil {
 		spec.AllowHosts = append([]string(nil), doc.Network.AllowHosts...)
-		spec.NetworkEnabled = len(spec.AllowHosts) > 0
+		spec.AutoPublish = doc.Network.AutoPublish
+		spec.NetworkEnabled = len(spec.AllowHosts) > 0 || spec.AutoPublish
 		if doc.Network.Enabled != nil {
 			spec.NetworkEnabled = *doc.Network.Enabled
 		}
-		if !spec.NetworkEnabled && len(spec.AllowHosts) > 0 {
-			return FVMSpec{}, errors.New("fvmfile: allow_hosts requires network.enabled: true")
+		if !spec.NetworkEnabled && (len(spec.AllowHosts) > 0 || spec.AutoPublish) {
+			return FVMSpec{}, errors.New("fvmfile: allow_hosts/auto_publish require network.enabled: true")
 		}
 		if !spec.NetworkEnabled && len(spec.Ports) > 0 {
 			if doc.Network.Enabled != nil {

@@ -206,3 +206,22 @@ func TestManagerNftSpecIncludesEgress(t *testing.T) {
 		t.Errorf("rendered bridge rules do not reject non-allowlisted TCP egress:\n%s", body)
 	}
 }
+
+func TestRenderLoopbackOnlyMapping(t *testing.T) {
+	out, err := renderNftables(nftSpec{
+		Table:  "fastvm",
+		Bridge: "fastvm0",
+		Mappings: []nftMapping{{
+			GuestIP: "10.77.0.2", HostPort: 8000, GuestPort: 8000, Proto: "tcp", LoopbackOnly: true,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "iifname != \"fastvm0\" tcp dport 8000") {
+		t.Fatalf("loopback-only mapping added a prerouting rule:\n%s", out)
+	}
+	if !strings.Contains(out, "ip daddr 127.0.0.1 tcp dport 8000 dnat to 10.77.0.2:8000") {
+		t.Fatalf("missing loopback output rule:\n%s", out)
+	}
+}

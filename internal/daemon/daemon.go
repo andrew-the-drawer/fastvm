@@ -66,6 +66,9 @@ type Daemon struct {
 	runtimes map[string]*runtime
 	names    sync.Map // sandbox ID -> name, retained for event enrichment
 
+	autoMu       sync.Mutex
+	autoReserved map[int]bool
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -122,8 +125,9 @@ func New(deps Deps) (*Daemon, error) {
 		cfg: deps.Config, st: deps.Store, img: deps.Images, vol: deps.Volumes,
 		net: deps.Network, sw: deps.Switch, vmmD: deps.VMM, dial: deps.DialAgent,
 		ifIndex: ifIndex, log: log, now: now,
-		runtimes: make(map[string]*runtime),
-		ctx:      ctx, cancel: cancel,
+		runtimes:     make(map[string]*runtime),
+		autoReserved: make(map[int]bool),
+		ctx:          ctx, cancel: cancel,
 		lastWake: make(map[string]time.Time), wakeTimes: make(map[string][]time.Time),
 	}
 	if d.sw != nil && d.sw.Mode() != l2switch.ModeBridge {
@@ -175,20 +179,24 @@ type runtime struct {
 	txBytes         uint64
 	statsAt         time.Time
 
-	execActive   int
-	workload     []string
-	workloadEnv  map[string]string
-	userData     string
-	guestBusy    bool
-	warmupUntil  time.Time
-	idleSince    time.Time
-	pausedSince  time.Time
-	snapshotting bool
-	idleReason   string
-	closed       bool
-	done         chan struct{}
-	stopOnce     sync.Once
-	mu           sync.Mutex
+	execActive      int
+	workload        []string
+	workloadEnv     map[string]string
+	userData        string
+	autoBase        []types.PortMapping
+	autoHost        map[int]int
+	autoWarnedPorts map[int]bool
+	autoWarned      bool
+	guestBusy       bool
+	warmupUntil     time.Time
+	idleSince       time.Time
+	pausedSince     time.Time
+	snapshotting    bool
+	idleReason      string
+	closed          bool
+	done            chan struct{}
+	stopOnce        sync.Once
+	mu              sync.Mutex
 }
 
 func (rt *runtime) stop() {
@@ -245,6 +253,15 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 		}
 	}
 	start := opts.Start == nil || *opts.Start
+	networkEnabled := opts.NetworkEnabled == nil || *opts.NetworkEnabled
+	if opts.AutoPublish {
+		if !start {
+			return types.Sandbox{}, fmt.Errorf("%w: auto_publish requires start", manager.ErrInvalid)
+		}
+		if !networkEnabled {
+			return types.Sandbox{}, fmt.Errorf("%w: auto_publish requires networking", manager.ErrInvalid)
+		}
+	}
 	if opts.UserData != "" {
 		if !start {
 			return types.Sandbox{}, fmt.Errorf("%w: user_data requires start", manager.ErrInvalid)
@@ -253,7 +270,6 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 			return types.Sandbox{}, fmt.Errorf("%w: user_data exceeds %d bytes", manager.ErrInvalid, types.MaxUserDataBytes)
 		}
 	}
-	networkEnabled := opts.NetworkEnabled == nil || *opts.NetworkEnabled
 	base, err := d.img.Get(ctx, opts.Image)
 	if err != nil {
 		return types.Sandbox{}, fmt.Errorf("%w: image %q: %v", manager.ErrNotFound, opts.Image, err)
@@ -268,7 +284,7 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	}
 	sb := types.Sandbox{
 		ID: id, Name: opts.Name, BaseDisk: base.Digest, VCPUs: vcpus, MemoryMB: mem,
-		State: types.StateCreating, Workdir: opts.Workdir,
+		State: types.StateCreating, Workdir: opts.Workdir, AutoPublish: opts.AutoPublish,
 		NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports, Volumes: opts.Volumes,
 		NetworkEnabled: networkEnabled, AllowHosts: opts.AllowHosts,
 		VMMAPISock:  filepath.Join(dir, "vmm-api.sock"),
@@ -286,6 +302,8 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	rt.workload = append([]string(nil), opts.Cmd...)
 	rt.workloadEnv = opts.Env
 	rt.userData = opts.UserData
+	rt.autoBase = append([]types.PortMapping(nil), opts.Ports...)
+	rt.autoHost = make(map[int]int)
 
 	vol, err := d.vol.Create(ctx, id, base, 0, d.cfg.Volume.COW) // 0 = use base disk size
 	if err != nil {
@@ -372,6 +390,10 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	d.mu.Unlock()
 	d.wg.Add(1)
 	go d.monitor(rt)
+	if rt.sb.AutoPublish {
+		d.wg.Add(1)
+		go d.autoPublishLoop(rt)
+	}
 	return sbOut, nil
 }
 
@@ -717,6 +739,7 @@ func (d *Daemon) Delete(ctx context.Context, ref string) error {
 		_ = rt.vm.Stop(context.Background())
 	}
 	_ = d.net.Delete(context.Background(), sb.ID)
+	d.releaseAutoPortsLocked(rt)
 	if d.sw != nil {
 		_ = d.sw.RemovePort(context.Background(), sb.ID)
 	}

@@ -115,6 +115,7 @@ type networkOptions struct {
 	net         bool
 	noNet       bool
 	allowHosts  []string
+	autoPublish bool
 	interactive bool
 	tty         bool
 	noAutoSleep bool
@@ -125,6 +126,7 @@ func addNetworkFlags(cmd *cobra.Command, opts *networkOptions) {
 	cmd.Flags().BoolVar(&opts.noNet, "no-net", false, "explicitly disable networking")
 	cmd.Flags().StringArrayVar(&opts.allowHosts, "allow-host", nil,
 		"allow egress only to this host (repeatable; implies --net)")
+	cmd.Flags().BoolVar(&opts.autoPublish, "auto-publish", false, "discover and publish guest TCP listening ports")
 	cmd.Flags().BoolVar(&opts.noAutoSleep, "no-auto-sleep", false, "never auto-sleep")
 }
 
@@ -134,9 +136,9 @@ func (o *networkOptions) validate(cmdName string) error {
 	if o.net && o.noNet {
 		return fmt.Errorf("%s: --net and --no-net are mutually exclusive", cmdName)
 	}
-	if len(o.allowHosts) > 0 {
+	if len(o.allowHosts) > 0 || o.autoPublish {
 		if o.noNet {
-			return fmt.Errorf("%s: --allow-host cannot be combined with --no-net", cmdName)
+			return fmt.Errorf("%s: --allow-host/--auto-publish cannot be combined with --no-net", cmdName)
 		}
 		o.net = true
 	}
@@ -169,7 +171,9 @@ sandbox running and prints its ID/state/name.
 With -f, explicitly passed creation flags override the .fvmfile values; --env
 merges per key and --volume wins for a matching guest path. --entrypoint overrides
 the fvmfile entrypoint, like Docker's --entrypoint. -w/--workdir sets the guest
-working directory for the command and interactive shell.`,
+working directory for the command and interactive shell. --auto-publish discovers
+guest TCP listeners and publishes them 1:1 on 127.0.0.1 at the same host port.
+Occupied host ports are skipped and retried later; they are never reassigned.`,
 		Example: `  fastvmctl run --net --image alpine -- uname -a
   fastvmctl run --net -it --image alpine -- /bin/sh
   fastvmctl run -f hack/codex.fvmfile
@@ -280,6 +284,9 @@ working directory for the command and interactive shell.`,
 				if !changed("net") && !changed("no-net") {
 					opts.net, opts.noNet = spec.NetworkEnabled, false
 				}
+				if !changed("auto-publish") {
+					opts.autoPublish = spec.AutoPublish
+				}
 				if !changed("allow-host") {
 					opts.allowHosts = spec.AllowHosts
 				}
@@ -353,7 +360,7 @@ working directory for the command and interactive shell.`,
 				"ports": ports, "volumes": vols, "cmd": workload, "env": env,
 				"no_auto_sleep": noAutoSleep, "start": !noStart,
 				"network_enabled": opts.enabled(), "allow_hosts": opts.allowHosts,
-				"user_data": userData,
+				"user_data": userData, "auto_publish": opts.autoPublish,
 			}
 			var sb types.Sandbox
 			if err := do(http.MethodPost, "/v1/sandboxes", body, &sb); err != nil {

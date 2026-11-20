@@ -206,8 +206,9 @@ stdout/stderr; use `-d/--detach` to start it as a background workload and print
 only the sandbox ID/state/name.
 `--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`,
 `--volume host[:guest][:ro]` / `-v` (repeatable), `--no-auto-sleep`,
-`-w/--workdir <dir>`, and `--entrypoint <cmd>` (override the image/fvmfile
-entrypoint) are available.
+`-w/--workdir <dir>`, `--auto-publish`, and `--entrypoint <cmd>` (override the
+image/fvmfile entrypoint) are available. Auto-published guest TCP listeners get
+ephemeral host ports in the 30000–39999 range; inspect them with `fastvmctl get`.
 
 ### Host-directory volumes (virtio-fs)
 

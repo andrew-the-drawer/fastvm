@@ -45,8 +45,9 @@ func newFakeNetwork() *fakeNetwork {
 func (f *fakeNetwork) Create(_ context.Context, req network.CreateRequest) (network.Port, error) {
 	return network.Port{SandboxID: req.SandboxID, MAC: "02:00:00:00:00:01", IP: "10.77.0.2", Gateway: "10.77.0.1"}, nil
 }
-func (f *fakeNetwork) Delete(context.Context, string) error          { return nil }
-func (f *fakeNetwork) SetAsleep(context.Context, string, bool) error { return nil }
+func (f *fakeNetwork) SetPorts(context.Context, string, []types.PortMapping) error { return nil }
+func (f *fakeNetwork) Delete(context.Context, string) error                        { return nil }
+func (f *fakeNetwork) SetAsleep(context.Context, string, bool) error               { return nil }
 func (f *fakeNetwork) Stats(context.Context, string) (types.NetStats, error) {
 	return types.NetStats{}, nil
 }

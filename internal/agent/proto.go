@@ -21,6 +21,7 @@ const (
 	OpSignal    = "signal"
 	OpTouch     = "touch"
 	OpBusy      = "busy"
+	OpPorts     = "ports"
 	OpWorkload  = "workload" // guest -> host event
 	OpHeartbeat = "heartbeat"
 )
@@ -71,6 +72,7 @@ type Response struct {
 	ExitCode int    `json:"exit_code"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
+	Ports    []int  `json:"ports,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -89,6 +91,8 @@ type Client interface {
 	Exec(ctx context.Context, req Request) (Response, error)
 	// SetEnv sets the sandbox base environment merged into every guest process.
 	SetEnv(ctx context.Context, env map[string]string) error
+	// Ports lists non-loopback TCP listening ports in the guest.
+	Ports(ctx context.Context) ([]int, error)
 	// SetNetwork reconfigures the guest NIC after a snapshot restore.
 	SetNetwork(ctx context.Context, address, gateway string) error
 	// SetHostname renames the guest after a snapshot restore.

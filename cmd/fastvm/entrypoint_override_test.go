@@ -53,7 +53,7 @@ entrypoint: ["copilot"]
 	root := newRootCmd()
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	root.SetArgs([]string{"--socket", sock, "run", "-d", "-f", file, "--entrypoint", "bash", "--workdir", "/workspace"})
+	root.SetArgs([]string{"--socket", sock, "run", "-d", "-f", file, "--entrypoint", "bash", "--workdir", "/workspace", "--auto-publish"})
 	_ = root.ExecuteContext(context.Background())
 
 	select {
@@ -64,6 +64,9 @@ entrypoint: ["copilot"]
 		}
 		if body["workdir"] != "/workspace" {
 			t.Fatalf("workdir = %v", body["workdir"])
+		}
+		if body["auto_publish"] != true || body["network_enabled"] != true {
+			t.Fatalf("auto_publish/network = %v/%v", body["auto_publish"], body["network_enabled"])
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("create request was not sent")

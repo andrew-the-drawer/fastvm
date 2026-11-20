@@ -112,6 +112,8 @@ type ActivitySource interface {
 // Manager owns the host-side network data plane.
 type Manager interface {
 	Create(ctx context.Context, req CreateRequest) (Port, error)
+	// SetPorts atomically replaces the published-port list for a sandbox.
+	SetPorts(ctx context.Context, sandboxID string, ports []types.PortMapping) error
 	Delete(ctx context.Context, sandboxID string) error
 	// SetAsleep flips the port's switch state: asleep ports still receive
 	// frames (queue-live model) but emit wake events instead of staying quiet.

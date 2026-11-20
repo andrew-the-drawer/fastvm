@@ -30,10 +30,11 @@ type nftEgress struct {
 }
 
 type nftMapping struct {
-	GuestIP   string
-	HostPort  int
-	GuestPort int
-	Proto     string
+	GuestIP      string
+	HostPort     int
+	GuestPort    int
+	Proto        string
+	LoopbackOnly bool
 }
 
 // nftSpec is everything needed to render the fastvm nftables table.
@@ -128,6 +129,7 @@ func renderNftables(spec nftSpec) (string, error) {
 		type rendered struct {
 			proto, guestIP      string
 			hostPort, guestPort int
+			loopbackOnly        bool
 		}
 		var rules []rendered
 		for _, m := range mappings {
@@ -142,11 +144,14 @@ func renderNftables(spec nftSpec) (string, error) {
 			if m.HostPort < 1 || m.HostPort > 65535 || m.GuestPort < 1 || m.GuestPort > 65535 {
 				return "", fmt.Errorf("network: DNAT port out of range: %d -> %d", m.HostPort, m.GuestPort)
 			}
-			rules = append(rules, rendered{proto, guestIP, m.HostPort, m.GuestPort})
+			rules = append(rules, rendered{proto, guestIP, m.HostPort, m.GuestPort, m.LoopbackOnly})
 		}
 		b.WriteString("\tchain prerouting {\n")
 		b.WriteString("\t\ttype nat hook prerouting priority dstnat; policy accept;\n")
 		for _, r := range rules {
+			if r.loopbackOnly {
+				continue // loopback-only mappings are output-hook only
+			}
 			if spec.Bridge != "" {
 				fmt.Fprintf(&b, "\t\tiifname != %q %s dport %d dnat to %s:%d\n",
 					spec.Bridge, r.proto, r.hostPort, r.guestIP, r.guestPort)
@@ -161,6 +166,11 @@ func renderNftables(spec nftSpec) (string, error) {
 		b.WriteString("\tchain output {\n")
 		b.WriteString("\t\ttype nat hook output priority dstnat; policy accept;\n")
 		for _, r := range rules {
+			if r.loopbackOnly {
+				fmt.Fprintf(&b, "\t\tip daddr 127.0.0.1 %s dport %d dnat to %s:%d\n",
+					r.proto, r.hostPort, r.guestIP, r.guestPort)
+				continue
+			}
 			fmt.Fprintf(&b, "\t\t%s dport %d dnat to %s:%d\n",
 				r.proto, r.hostPort, r.guestIP, r.guestPort)
 		}
@@ -261,10 +271,11 @@ func nftMappings(allocs []*allocation) []nftMapping {
 	for _, alloc := range allocs {
 		for _, p := range alloc.ports {
 			out = append(out, nftMapping{
-				GuestIP:   alloc.ip.String(),
-				HostPort:  p.HostPort,
-				GuestPort: p.GuestPort,
-				Proto:     p.Proto,
+				GuestIP:      alloc.ip.String(),
+				HostPort:     p.HostPort,
+				GuestPort:    p.GuestPort,
+				Proto:        p.Proto,
+				LoopbackOnly: p.LoopbackOnly,
 			})
 		}
 	}
