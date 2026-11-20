@@ -430,7 +430,7 @@ func TestCreateRunning(t *testing.T) {
 func TestCreateAndExecCarrySandboxEnv(t *testing.T) {
 	h := newHarness(t)
 	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
-		Name: "env", Image: "img:test", Env: map[string]string{"TOKEN": "secret"},
+		Name: "env", Image: "img:test", Env: map[string]string{"TOKEN": "secret"}, Workdir: "/workspace",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -451,6 +451,14 @@ func TestCreateAndExecCarrySandboxEnv(t *testing.T) {
 	if last.Env["TOKEN"] != "secret" {
 		t.Fatalf("exec env = %v, want TOKEN=secret", last.Env)
 	}
+	if sb.Workdir != "/workspace" {
+		t.Fatalf("sandbox workdir = %q", sb.Workdir)
+	}
+	a.mu.Lock()
+	if len(a.execs) == 0 || a.execs[0].Dir != "/workspace" {
+		t.Fatalf("workload dir = %v", a.execs)
+	}
+	a.mu.Unlock()
 }
 
 func TestCreateImageNotFound(t *testing.T) {

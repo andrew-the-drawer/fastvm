@@ -68,6 +68,7 @@ type Sandbox struct {
 	VCPUs          int           `json:"vcpus"`
 	MemoryMB       int           `json:"memory_mb"`
 	State          State         `json:"state"`
+	Workdir        string        `json:"workdir,omitempty"`
 	NoAutoSleep    bool          `json:"no_auto_sleep"`
 	NetworkEnabled bool          `json:"network_enabled"`
 	AllowHosts     []string      `json:"allow_hosts,omitempty"`

@@ -56,6 +56,7 @@ no_auto_sleep: true
 | `image` | Required OCI image or base disk reference; pulled on demand. |
 | `entrypoint` | Fixed guest argv, like Docker's `ENTRYPOINT`. |
 | `command` | Default arguments appended to `entrypoint`, like Docker's `CMD`. Without `entrypoint`, it is the full guest argv. |
+| `workdir` | Guest working directory for the command, `exec`, and shell sessions. Must be an absolute clean path. |
 | `env` | Guest environment for the workload, user_data, exec, and shell sessions. `${NAME}` is expanded from the host environment; unset references are an error. |
 | `volumes` | `host`, `guest`, `read_only`. Relative host paths resolve against the file directory. |
 | `ports` | `host`, `guest`, optional `protocol` (`tcp`/`udp`). |
@@ -86,6 +87,12 @@ command: ["--help"]
 - `entrypoint` is the fixed executable and arguments.
 - `command` is the default argument list, used when no CLI args are given.
 - CLI args after `--` replace `command` and are appended to `entrypoint`.
+- `-w/--workdir` sets the guest working directory for the command and shell.
+- `--entrypoint <cmd>` overrides `entrypoint` for one run, like Docker:
+
+```sh
+fastvmctl run -f hack/copilot.fvmfile -it --entrypoint bash
+```
 
 | .fvmfile | CLI | Final argv |
 |---|---|---|

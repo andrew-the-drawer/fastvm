@@ -36,6 +36,9 @@ func (d *Daemon) Shell(ctx context.Context, ref string, req agent.ShellRequest) 
 	rt.execActive++
 	d.touchLocked(rt, sb)
 	req.Env = mergeEnvMaps(rt.workloadEnv, req.Env)
+	if req.Dir == "" {
+		req.Dir = sb.Workdir
+	}
 	if err := d.persistLocked(ctx, rt, sb); err != nil {
 		rt.execActive--
 		return nil, err

@@ -29,6 +29,7 @@ type SnapshotMeta struct {
 	ImageDigest    string    `json:"image_digest"`
 	VCPUs          int       `json:"vcpus"`
 	MemoryMB       int       `json:"memory_mb"`
+	Workdir        string    `json:"workdir,omitempty"`
 	NetworkEnabled bool      `json:"network_enabled"`
 	AllowHosts     []string  `json:"allow_hosts,omitempty"`
 	VsockCID       uint32    `json:"vsock_cid"`
@@ -195,7 +196,7 @@ func (d *Daemon) snapshotLocked(ctx context.Context, rt *runtime, outDir string)
 	}
 	meta := SnapshotMeta{
 		Version: snapshotVersion, ImageDigest: sb.BaseDisk,
-		VCPUs: sb.VCPUs, MemoryMB: sb.MemoryMB,
+		VCPUs: sb.VCPUs, MemoryMB: sb.MemoryMB, Workdir: sb.Workdir,
 		NetworkEnabled: sb.NetworkEnabled, AllowHosts: sb.AllowHosts,
 		VsockCID: guestCID(sb.IP), CreatedAt: d.now(),
 	}
@@ -259,7 +260,7 @@ func (d *Daemon) createFromSnapshot(ctx context.Context, opts manager.CreateOpti
 	}
 	sb := types.Sandbox{
 		ID: id, Name: opts.Name, BaseDisk: base.Digest,
-		VCPUs: meta.VCPUs, MemoryMB: meta.MemoryMB,
+		VCPUs: meta.VCPUs, MemoryMB: meta.MemoryMB, Workdir: meta.Workdir,
 		State: types.StateStarting, NetworkEnabled: meta.NetworkEnabled,
 		AllowHosts:  meta.AllowHosts,
 		VMMAPISock:  filepath.Join(dir, "vmm-api.sock"),

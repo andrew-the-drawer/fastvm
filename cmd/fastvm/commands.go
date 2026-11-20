@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -140,7 +141,7 @@ func (o *networkOptions) validate(cmdName string) error {
 }
 
 func newRunCmd() *cobra.Command {
-	var image, name, file, fromSnapshot string
+	var image, name, file, fromSnapshot, entrypoint, workdir string
 	var vcpus, memory int
 	var publishes, envs, volumes []string
 	var userData string
@@ -163,10 +164,13 @@ create without booting, then resume it later. A run with no command leaves the
 sandbox running and prints its ID/state/name.
 
 With -f, explicitly passed creation flags override the .fvmfile values; --env
-merges per key and --volume wins for a matching guest path.`,
+merges per key and --volume wins for a matching guest path. --entrypoint overrides
+the fvmfile entrypoint, like Docker's --entrypoint. -w/--workdir sets the guest
+working directory for the command and interactive shell.`,
 		Example: `  fastvmctl run --net --image alpine -- uname -a
   fastvmctl run --net -it --image alpine -- /bin/sh
   fastvmctl run -f hack/codex.fvmfile
+  fastvmctl run -f hack/copilot.fvmfile -it --entrypoint bash
   fastvmctl run --image alpine --name agent --no-start
   fastvmctl run --from-snapshot original-vm-20261119-182000 --name copy-1
   fastvmctl run --name agent`,
@@ -175,15 +179,15 @@ merges per key and --volume wins for a matching guest path.`,
 			if detach && (opts.interactive || opts.tty) {
 				return errors.New("--detach and --interactive/--tty are mutually exclusive")
 			}
-			if noStart && (detach || opts.interactive || opts.tty || len(cmdArgs) > 0) {
-				return errors.New("--no-start cannot be combined with a command, -d, -i, or -t")
+			if noStart && (detach || opts.interactive || opts.tty || len(cmdArgs) > 0 || entrypoint != "") {
+				return errors.New("--no-start cannot be combined with a command, --entrypoint, -d, -i, or -t")
 			}
 
 			if fromSnapshot != "" {
 				if file != "" || cobraCmd.Flags().Changed("image") {
 					return errors.New("--from-snapshot cannot be combined with --image or --file")
 				}
-				for _, flagName := range []string{"vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "no-auto-sleep"} {
+				for _, flagName := range []string{"vcpus", "memory", "publish", "env", "volume", "net", "no-net", "allow-host", "no-auto-sleep", "entrypoint", "workdir"} {
 					if cobraCmd.Flags().Changed(flagName) {
 						return fmt.Errorf("--%s does not apply with --from-snapshot", flagName)
 					}
@@ -228,6 +232,9 @@ merges per key and --volume wins for a matching guest path.`,
 				}
 				if name == "" {
 					name = spec.Name
+				}
+				if !changed("workdir") {
+					workdir = spec.Workdir
 				}
 				if !changed("vcpus") {
 					vcpus = spec.VCPUs
@@ -289,7 +296,11 @@ merges per key and --volume wins for a matching guest path.`,
 				if noStart && spec.UserData != "" {
 					return errors.New("--no-start cannot be combined with user_data")
 				}
-				runArgs = resolveWorkload(spec.Entrypoint, spec.Command, runArgs)
+				ep := spec.Entrypoint
+				if changed("entrypoint") {
+					ep = []string{entrypoint}
+				}
+				runArgs = resolveWorkload(ep, spec.Command, runArgs)
 			} else {
 				if err := opts.validate("run"); err != nil {
 					return err
@@ -301,8 +312,8 @@ merges per key and --volume wins for a matching guest path.`,
 					if noStart {
 						return errors.New("--no-start requires --image or --file")
 					}
-					if len(cmdArgs) > 0 || detach || opts.interactive || opts.tty {
-						return errors.New("booting an existing sandbox does not take a command or -d/-i/-t")
+					if len(cmdArgs) > 0 || entrypoint != "" || workdir != "" || detach || opts.interactive || opts.tty {
+						return errors.New("booting an existing sandbox does not take a command, --entrypoint, --workdir, or -d/-i/-t")
 					}
 					return resumeSandbox(name)
 				}
@@ -316,9 +327,15 @@ merges per key and --volume wins for a matching guest path.`,
 				if vols, err = parseVolumes(volumes); err != nil {
 					return err
 				}
+				if entrypoint != "" {
+					runArgs = resolveWorkload([]string{entrypoint}, nil, runArgs)
+				}
 				noAutoSleep = opts.noAutoSleep
 			}
 
+			if workdir != "" && (!filepath.IsAbs(workdir) || filepath.Clean(workdir) != workdir || workdir == "/") {
+				return fmt.Errorf("--workdir %q must be an absolute clean path below /", workdir)
+			}
 			if err := ensureImage(image); err != nil {
 				return err
 			}
@@ -328,7 +345,7 @@ merges per key and --volume wins for a matching guest path.`,
 				workload = runArgs
 			}
 			body := map[string]any{
-				"name": name, "image": image,
+				"name": name, "image": image, "workdir": workdir,
 				"vcpus": vcpus, "memory_mb": memory,
 				"ports": ports, "volumes": vols, "cmd": workload, "env": env,
 				"no_auto_sleep": noAutoSleep, "start": !noStart,
@@ -360,6 +377,8 @@ merges per key and --volume wins for a matching guest path.`,
 	f := cmd.Flags()
 	f.StringVarP(&file, "file", "f", "", "load sandbox config from an .fvmfile")
 	f.StringVar(&fromSnapshot, "from-snapshot", "", "boot a new sandbox from a saved snapshot")
+	f.StringVar(&entrypoint, "entrypoint", "", "override the image/fvmfile entrypoint")
+	f.StringVarP(&workdir, "workdir", "w", "", "guest working directory")
 	f.StringVar(&image, "image", "", "OCI image or base disk tag/digest")
 	f.StringVar(&name, "name", "", "sandbox name or ID (boot it if no image/file is given)")
 	f.IntVar(&vcpus, "vcpus", 0, "vCPUs (0 = default)")

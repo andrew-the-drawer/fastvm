@@ -239,6 +239,11 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	if err := validateVolumes(d.cfg, opts.Volumes); err != nil {
 		return types.Sandbox{}, err
 	}
+	if opts.Workdir != "" {
+		if !filepath.IsAbs(opts.Workdir) || filepath.Clean(opts.Workdir) != opts.Workdir || opts.Workdir == "/" {
+			return types.Sandbox{}, fmt.Errorf("%w: workdir %q must be an absolute clean path below /", manager.ErrInvalid, opts.Workdir)
+		}
+	}
 	start := opts.Start == nil || *opts.Start
 	if opts.UserData != "" {
 		if !start {
@@ -263,7 +268,8 @@ func (d *Daemon) Create(ctx context.Context, opts manager.CreateOptions) (types.
 	}
 	sb := types.Sandbox{
 		ID: id, Name: opts.Name, BaseDisk: base.Digest, VCPUs: vcpus, MemoryMB: mem,
-		State: types.StateCreating, NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports, Volumes: opts.Volumes,
+		State: types.StateCreating, Workdir: opts.Workdir,
+		NoAutoSleep: opts.NoAutoSleep, Ports: opts.Ports, Volumes: opts.Volumes,
 		NetworkEnabled: networkEnabled, AllowHosts: opts.AllowHosts,
 		VMMAPISock:  filepath.Join(dir, "vmm-api.sock"),
 		VsockUDPath: filepath.Join(dir, "vsock.sock"),
@@ -442,7 +448,7 @@ func (d *Daemon) bootLocked(ctx context.Context, rt *runtime) error {
 	if len(rt.workload) > 0 {
 		_, werr := ac.Exec(ctx, agent.Request{
 			ID: newReqID(), Op: agent.OpExec, Detach: true,
-			Argv: rt.workload, Env: rt.workloadEnv,
+			Argv: rt.workload, Env: rt.workloadEnv, Dir: sb.Workdir,
 		})
 		if werr != nil {
 			d.event(ctx, sb.ID, "error", "workload start: "+werr.Error())
@@ -604,7 +610,7 @@ func (d *Daemon) Exec(ctx context.Context, ref string, argv []string, env map[st
 	defer func() { rt.execActive-- }()
 	d.touchLocked(rt, sb)
 	env = mergeEnvMaps(rt.workloadEnv, env)
-	req := agent.Request{ID: newReqID(), Op: agent.OpExec, Argv: argv, Env: env, TimeoutMS: 10 * 60 * 1000}
+	req := agent.Request{ID: newReqID(), Op: agent.OpExec, Argv: argv, Env: env, Dir: sb.Workdir, TimeoutMS: 10 * 60 * 1000}
 	resp, err := ac.Exec(ctx, req)
 	if err != nil {
 		return agent.Response{}, err

@@ -41,6 +41,7 @@ type Request struct {
 	Argv      []string          `json:"argv,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Stdin     string            `json:"stdin,omitempty"`
+	Dir       string            `json:"dir,omitempty"`
 	Signal    string            `json:"signal,omitempty"`
 	TimeoutMS int               `json:"timeout_ms,omitempty"`
 	// Detach starts Argv as the sandbox workload in the background and returns

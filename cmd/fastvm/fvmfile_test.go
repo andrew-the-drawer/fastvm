@@ -25,6 +25,7 @@ name: codex
 image: node:26-slim
 entrypoint: ["/usr/local/bin/codex"]
 command: ["--help"]
+workdir: /workspace
 env:
   TOKEN: "${FVM_TEST_TOKEN}"
 volumes:
@@ -51,6 +52,9 @@ no_auto_sleep: true
 	}
 	if len(spec.Entrypoint) != 1 || spec.Entrypoint[0] != "/usr/local/bin/codex" || len(spec.Command) != 1 || spec.Command[0] != "--help" {
 		t.Fatalf("entrypoint/command = %v/%v", spec.Entrypoint, spec.Command)
+	}
+	if spec.Workdir != "/workspace" {
+		t.Fatalf("workdir = %q", spec.Workdir)
 	}
 	if spec.Env["TOKEN"] != "secret-value" {
 		t.Errorf("env not expanded: %v", spec.Env)
@@ -162,5 +166,13 @@ func TestResolveWorkload(t *testing.T) {
 				t.Fatalf("resolveWorkload = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadFVMFileRejectsRelativeWorkdir(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFVMFile(t, dir, "wd.fvmfile", "image: alpine\nworkdir: relative/dir\n")
+	if _, err := LoadFVMFile(path); err == nil || !strings.Contains(err.Error(), "workdir") {
+		t.Fatalf("err = %v", err)
 	}
 }

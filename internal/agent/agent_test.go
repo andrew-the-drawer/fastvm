@@ -508,3 +508,18 @@ func TestClientSetEnvAppliesToExec(t *testing.T) {
 		t.Fatalf("request override not applied: %+v", resp)
 	}
 }
+
+func TestClientExecWorkingDir(t *testing.T) {
+	f := startAgentServer(t)
+	cl := dialTestClient(t, f.sock)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	resp, err := cl.Exec(ctx, Request{Argv: []string{"/bin/pwd"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if resp.ExitCode != 0 || strings.TrimSpace(resp.Stdout) != dir {
+		t.Fatalf("pwd = %+v, want %q", resp, dir)
+	}
+}

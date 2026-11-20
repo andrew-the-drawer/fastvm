@@ -32,6 +32,7 @@ const ShellMaxFrame = 256 << 10
 type ShellRequest struct {
 	Argv []string          `json:"argv,omitempty"` // default: /bin/sh
 	Env  map[string]string `json:"env,omitempty"`
+	Dir  string            `json:"dir,omitempty"`
 	Rows uint16            `json:"rows,omitempty"`
 	Cols uint16            `json:"cols,omitempty"`
 }
@@ -128,7 +129,7 @@ func OpenShell(ctx context.Context, vsockUDSPath string, guestCID uint32, req Sh
 
 	id := fmt.Sprintf("shell-%d", time.Now().UnixNano())
 	reqLine, err := WriteLine(Request{
-		ID: id, Op: OpShell, Argv: req.Argv, Env: req.Env, Rows: req.Rows, Cols: req.Cols,
+		ID: id, Op: OpShell, Argv: req.Argv, Env: req.Env, Dir: req.Dir, Rows: req.Rows, Cols: req.Cols,
 	})
 	if err != nil {
 		_ = nc.Close()

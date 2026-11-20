@@ -178,7 +178,7 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 	switch req.Op {
 	case OpExec:
 		if req.Detach {
-			if err := s.startWorkload(Workload{Argv: req.Argv, Env: req.Env}); err != nil {
+			if err := s.startWorkload(Workload{Argv: req.Argv, Env: req.Env, Dir: req.Dir}); err != nil {
 				resp.ExitCode = -1
 				resp.Error = err.Error()
 			}
@@ -265,6 +265,7 @@ func (s *Server) exec(ctx context.Context, req Request) Response {
 
 	cmd := exec.CommandContext(runCtx, req.Argv[0], req.Argv[1:]...)
 	cmd.Env = s.commandEnv(req.Env)
+	cmd.Dir = req.Dir
 	if req.Stdin != "" {
 		cmd.Stdin = strings.NewReader(req.Stdin)
 	}

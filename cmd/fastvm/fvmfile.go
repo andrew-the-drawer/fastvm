@@ -24,6 +24,7 @@ type FVMFile struct {
 	Image        string            `yaml:"image"`
 	Entrypoint   []string          `yaml:"entrypoint"`
 	Command      []string          `yaml:"command"`
+	Workdir      string            `yaml:"workdir"`
 	Env          map[string]string `yaml:"env"`
 	Volumes      []FVMVolume       `yaml:"volumes"`
 	Ports        []FVMPort         `yaml:"ports"`
@@ -64,6 +65,7 @@ type FVMSpec struct {
 	MemoryMB       int
 	Entrypoint     []string
 	Command        []string
+	Workdir        string
 	Env            map[string]string
 	Volumes        []types.Volume
 	Ports          []types.PortMapping
@@ -103,10 +105,16 @@ func LoadFVMFile(path string) (FVMSpec, error) {
 		name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
 
+	if doc.Workdir != "" {
+		if !filepath.IsAbs(doc.Workdir) || filepath.Clean(doc.Workdir) != doc.Workdir || doc.Workdir == "/" {
+			return FVMSpec{}, fmt.Errorf("fvmfile: workdir %q must be an absolute clean path below /", doc.Workdir)
+		}
+	}
 	spec := FVMSpec{
 		Name: name, Image: doc.Image,
 		Entrypoint: append([]string(nil), doc.Entrypoint...),
 		Command:    append([]string(nil), doc.Command...),
+		Workdir:    doc.Workdir,
 	}
 	if doc.Resources != nil {
 		spec.VCPUs, spec.MemoryMB = doc.Resources.VCPUs, doc.Resources.MemoryMB
