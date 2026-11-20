@@ -156,7 +156,10 @@ Identical inputs hit the cache; the base disk is read-only and shared by
 sandboxes. Compressed layers are cached by digest under
 `<data_dir>/images/blobs/` and reused across images, so pulling a new tag that
 shares base layers does not re-download them. If one cached blob is deleted, only
-that blob is fetched again. Registry credentials are read from
+that blob is fetched again. A source-index cache (`<data_dir>/images/sources/`)
+maps image manifest + agent/init + format + size to the finished disk, so a
+repeated `image pull` can return the disk without extracting layers. Registry
+credentials are read from
 the Docker config keychain (`~/.docker/config.json`), so private registries work
 without the Docker daemon.
 

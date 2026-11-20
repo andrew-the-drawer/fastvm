@@ -24,12 +24,34 @@ func (b *FSBuilder) Pull(ctx context.Context, spec PullSpec) (types.BaseDisk, er
 	if ref == "" {
 		return types.BaseDisk{}, fmt.Errorf("image: reference is required")
 	}
-	rootfs, cleanup, err := b.registryRootfs(ctx, ref)
+	parsed, err := b.parseReference(ref)
+	if err != nil {
+		return types.BaseDisk{}, err
+	}
+	img, err := b.remoteImage(ctx, parsed)
+	if err != nil {
+		return types.BaseDisk{}, fmt.Errorf("image: pull %q: %w", ref, err)
+	}
+	key, err := b.sourceKey(img, spec)
+	if err != nil {
+		return types.BaseDisk{}, err
+	}
+	if hex, ok := b.lookupSource(key); ok {
+		if disk, ok := b.loadDisk(hex); ok {
+			if err := b.recordTag(ref, hex); err != nil {
+				return types.BaseDisk{}, err
+			}
+			disk.Name, disk.Tag = ref, ref
+			return disk, nil
+		}
+		_ = os.Remove(b.sourcePath(key))
+	}
+	rootfs, cleanup, err := b.registryRootfsFromImage(ctx, ref, img)
 	if err != nil {
 		return types.BaseDisk{}, err
 	}
 	defer cleanup()
-	return b.makeBaseDisk(ctx, baseDiskRequest{
+	disk, err := b.makeBaseDisk(ctx, baseDiskRequest{
 		srcRootfs: rootfs,
 		tag:       ref,
 		sizeGB:    spec.SizeGB,
@@ -37,6 +59,17 @@ func (b *FSBuilder) Pull(ctx context.Context, spec PullSpec) (types.BaseDisk, er
 		initPath:  spec.InitPath,
 		source:    "registry",
 	})
+	if err != nil {
+		return types.BaseDisk{}, err
+	}
+	hex, ok := digestHexFromRef(disk.Digest)
+	if !ok {
+		return types.BaseDisk{}, fmt.Errorf("image: invalid disk digest %q", disk.Digest)
+	}
+	if err := b.recordSource(key, hex); err != nil {
+		return types.BaseDisk{}, err
+	}
+	return disk, nil
 }
 
 // registryRootfs pulls ref and extracts its flattened rootfs. No Docker daemon

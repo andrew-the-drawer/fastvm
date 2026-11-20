@@ -109,8 +109,10 @@ Global socket selection: `--socket <path>` before the command, or
   sandboxes can be restored from the same snapshot.
 - Images are cached by OCI reference; compressed layers are cached by digest
   under `<data_dir>/images/blobs` and shared across image pulls; deleting one
-  blob only forces that blob to be downloaded again. Use `image ls` to inspect
-  base disks.
+  blob only forces that blob to be downloaded again. A source index under
+  `<data_dir>/images/sources` lets repeated pulls skip rootfs extraction when
+  the image, agent/init, format, and size are unchanged. Use `image ls` to
+  inspect base disks.
   Rebuild base images after changing the guest agent (snapshot restores use
   the agent's `network`/`hostname` ops for the new sandbox identity).
 - Build identity is included in `version`/`--version`

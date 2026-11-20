@@ -252,6 +252,11 @@ func TestLayerCacheRedownloadsOnlyDeletedBlob(t *testing.T) {
 	if err := os.Remove(missingPath); err != nil {
 		t.Fatalf("remove cached blob: %v", err)
 	}
+	// Exercise the layer cache directly; the source index would otherwise
+	// bypass extraction entirely.
+	if err := os.RemoveAll(filepath.Join(dir, "images", "sources")); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := b.Pull(context.Background(), PullSpec{Ref: ref.String(), SizeGB: 1}); err != nil {
 		t.Fatalf("second pull: %v", err)
@@ -268,5 +273,56 @@ func TestLayerCacheRedownloadsOnlyDeletedBlob(t *testing.T) {
 		if requests[digest] != 0 {
 			t.Fatalf("cached layer %s was re-downloaded %d times", digest, requests[digest])
 		}
+	}
+}
+
+func TestSourceIndexSkipsExtractionAndBlobs(t *testing.T) {
+	requireMke2fs(t)
+	reg := registry.New()
+	var blobRequests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/blobs/") {
+			blobRequests.Add(1)
+		}
+		reg.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	layer := tarballLayer(t, map[string]string{"etc/hello": "hello\n"})
+	img, err := mutate.AppendLayers(empty.Image, layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := name.NewTag(srv.Listener.Addr().String()+"/source:latest", name.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Write(ref, img); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	imagesDir := filepath.Join(dir, "images")
+	b, err := NewBuilder(Options{BaseDir: imagesDir, InsecureRegistry: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Pull(context.Background(), PullSpec{Ref: ref.String(), SizeGB: 1}); err != nil {
+		t.Fatalf("first pull: %v", err)
+	}
+	sources, err := os.ReadDir(filepath.Join(imagesDir, "sources"))
+	if err != nil || len(sources) == 0 {
+		t.Fatalf("source index is empty: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(imagesDir, "blobs")); err != nil {
+		t.Fatal(err)
+	}
+	blobRequests.Store(0)
+
+	if _, err := b.Pull(context.Background(), PullSpec{Ref: ref.String(), SizeGB: 1}); err != nil {
+		t.Fatalf("second pull via source index: %v", err)
+	}
+	if got := blobRequests.Load(); got != 0 {
+		t.Fatalf("source-index pull requested %d layer blobs, want 0", got)
 	}
 }

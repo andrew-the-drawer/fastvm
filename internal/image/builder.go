@@ -473,6 +473,7 @@ func (b *FSBuilder) Remove(ctx context.Context, ref string) (types.BaseDisk, err
 	if err := os.Remove(metaPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return types.BaseDisk{}, fmt.Errorf("image: remove metadata %q: %w", ref, err)
 	}
+	b.removeSourcesFor(digestHex)
 	return disk, nil
 }
 
