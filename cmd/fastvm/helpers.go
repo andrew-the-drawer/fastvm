@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,7 +12,11 @@ import (
 	"fastvm/internal/types"
 )
 
-// parseVolumes parses repeatable --volume host:guest[:ro] flags.
+// parseVolumes parses repeatable --volume flags. Accepted forms:
+//
+//	/path                  same path inside the guest
+//	/host:/guest           explicit guest path
+//	/host[:/guest][:ro]    explicit path with read-only mode
 func parseVolumes(raw []string) ([]types.Volume, error) {
 	out := make([]types.Volume, 0, len(raw))
 	for _, spec := range raw {
@@ -23,7 +28,12 @@ func parseVolumes(raw []string) ([]types.Volume, error) {
 			spec = strings.TrimSuffix(spec, ":rw")
 		}
 		host, guest, ok := strings.Cut(spec, ":")
-		if !ok || host == "" || guest == "" {
+		if !ok {
+			if !filepath.IsAbs(spec) || filepath.Clean(spec) != spec {
+				return nil, fmt.Errorf("volume %q: single-path form must be an absolute clean host path", spec)
+			}
+			host, guest = spec, spec
+		} else if host == "" || guest == "" {
 			return nil, fmt.Errorf("volume %q: expected host:guest[:ro]", spec)
 		}
 		out = append(out, types.Volume{HostPath: host, GuestPath: guest, ReadOnly: readOnly})

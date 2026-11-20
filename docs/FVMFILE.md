@@ -88,6 +88,8 @@ command: ["--help"]
 - `command` is the default argument list, used when no CLI args are given.
 - CLI args after `--` replace `command` and are appended to `entrypoint`.
 - `-w/--workdir` sets the guest working directory for the command and shell.
+`-v/--volume` supports `host[:guest][:ro]`; a single host path mounts at the same
+path in the guest.
 - `--entrypoint <cmd>` overrides `entrypoint` for one run, like Docker:
 
 ```sh

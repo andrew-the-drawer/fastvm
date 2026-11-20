@@ -388,7 +388,7 @@ working directory for the command and interactive shell.`,
 	f.IntVar(&memory, "memory", 0, "memory MiB (0 = default)")
 	f.StringArrayVar(&publishes, "publish", nil, "publish a port host:guest[/tcp|udp]")
 	f.StringArrayVar(&envs, "env", nil, "workload env K=V")
-	f.StringArrayVar(&volumes, "volume", nil, "mount a host directory: host:guest[:ro]")
+	f.StringArrayVarP(&volumes, "volume", "v", nil, "mount a host directory: host[:guest][:ro]")
 	f.BoolVarP(&detach, "detach", "d", false, "run the command in the background and print the sandbox ID")
 	f.BoolVar(&noStart, "no-start", false, "create without booting")
 	f.BoolVarP(&opts.interactive, "interactive", "i", false, "attach an interactive PTY")

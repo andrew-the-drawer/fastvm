@@ -57,3 +57,21 @@ func TestAllowHostImpliesNet(t *testing.T) {
 		t.Fatal("allow-host + no-net should fail")
 	}
 }
+
+func TestParseVolumes(t *testing.T) {
+	got, err := parseVolumes([]string{"/var/lib/docker", "/tmp:/data:ro", "/tmp:/rw:rw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []types.Volume{
+		{HostPath: "/var/lib/docker", GuestPath: "/var/lib/docker"},
+		{HostPath: "/tmp", GuestPath: "/data", ReadOnly: true},
+		{HostPath: "/tmp", GuestPath: "/rw"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
+	if _, err := parseVolumes([]string{"relative"}); err == nil {
+		t.Fatal("relative single path should fail")
+	}
+}

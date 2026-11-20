@@ -205,7 +205,7 @@ virtio-vsock, then runs the command after `--`. By default it waits and streams
 stdout/stderr; use `-d/--detach` to start it as a background workload and print
 only the sandbox ID/state/name.
 `--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`,
-`--volume host:guest[:ro]` (repeatable), `--no-auto-sleep`,
+`--volume host[:guest][:ro]` / `-v` (repeatable), `--no-auto-sleep`,
 `-w/--workdir <dir>`, and `--entrypoint <cmd>` (override the image/fvmfile
 entrypoint) are available.
 
