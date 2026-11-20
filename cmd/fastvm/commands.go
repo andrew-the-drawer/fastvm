@@ -163,7 +163,10 @@ By default run waits for the command and streams its stdout/stderr, then removes
 the one-off sandbox. An interactive -it shell is also removed on exit. Use -d to
 keep the sandbox and start the command in the background. Use --no-start to
 create without booting, then resume it later. A run with no command leaves the
-sandbox running and prints its ID/state/name.`,
+sandbox running and prints its ID/state/name.
+
+With -f, explicitly passed creation flags override the .fvmfile values; --env
+merges per key and --volume wins for a matching guest path.`,
 		Example: `  fastvmctl run --net --image alpine -- uname -a
   fastvmctl run --net -it --image alpine -- /bin/sh
   fastvmctl run -f hack/codex.fvmfile
@@ -217,30 +220,74 @@ sandbox running and prints its ID/state/name.`,
 			noAutoSleep := false
 
 			if file != "" {
-				for _, flagName := range []string{"image", "vcpus", "memory", "publish", "env", "net", "no-net", "allow-host", "no-auto-sleep"} {
-					if cobraCmd.Flags().Changed(flagName) {
-						return fmt.Errorf("--%s cannot be combined with --file", flagName)
-					}
-				}
 				spec, err := LoadFVMFile(file)
 				if err != nil {
 					return err
 				}
-				image = spec.Image
+				changed := func(flag string) bool { return cobraCmd.Flags().Changed(flag) }
+
+				if !changed("image") {
+					image = spec.Image
+				}
 				if name == "" {
 					name = spec.Name
 				}
-				vcpus, memory = spec.VCPUs, spec.MemoryMB
-				ports, env, vols = spec.Ports, spec.Env, spec.Volumes
-				if len(volumes) > 0 {
+				if !changed("vcpus") {
+					vcpus = spec.VCPUs
+				}
+				if !changed("memory") {
+					memory = spec.MemoryMB
+				}
+				if changed("publish") {
+					if ports, err = parsePublishes(publishes); err != nil {
+						return err
+					}
+				} else {
+					ports = spec.Ports
+				}
+				if changed("env") {
+					flagEnv, err := parseEnvs(envs)
+					if err != nil {
+						return err
+					}
+					env = mergeEnvMaps(spec.Env, flagEnv)
+				} else {
+					env = spec.Env
+				}
+				if changed("volume") {
 					extraVols, err := parseVolumes(volumes)
 					if err != nil {
 						return err
 					}
-					vols = append(vols, extraVols...)
+					vols = mergeVolumes(spec.Volumes, extraVols)
+				} else {
+					vols = spec.Volumes
 				}
-				opts.net, opts.noNet, opts.allowHosts = spec.NetworkEnabled, false, spec.AllowHosts
-				noAutoSleep = spec.NoAutoSleep
+
+				if changed("net") {
+					opts.net = true
+				}
+				if changed("no-net") {
+					opts.noNet = true
+				}
+				if !changed("net") && !changed("no-net") {
+					opts.net, opts.noNet = spec.NetworkEnabled, false
+				}
+				if !changed("allow-host") {
+					opts.allowHosts = spec.AllowHosts
+				}
+				if changed("no-net") && !changed("allow-host") {
+					// Disabling the NIC overrides the file allowlist too.
+					opts.allowHosts = nil
+				}
+				if err := opts.validate("run"); err != nil {
+					return err
+				}
+				if changed("no-auto-sleep") {
+					noAutoSleep = opts.noAutoSleep
+				} else {
+					noAutoSleep = spec.NoAutoSleep
+				}
 				userData = spec.UserData
 				if noStart && spec.UserData != "" {
 					return errors.New("--no-start cannot be combined with user_data")
@@ -409,6 +456,40 @@ func newSnapshotRemoveCmd() *cobra.Command {
 			return errors.Join(errs...)
 		},
 	}
+}
+
+// mergeEnvMaps returns base with override applied; CLI env wins per key.
+func mergeEnvMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
+}
+
+// mergeVolumes appends CLI volumes, replacing file volumes with the same
+// guest path so an explicit flag wins.
+func mergeVolumes(base, extra []types.Volume) []types.Volume {
+	out := append([]types.Volume(nil), base...)
+	index := make(map[string]int, len(out))
+	for i, vol := range out {
+		index[vol.GuestPath] = i
+	}
+	for _, vol := range extra {
+		if i, ok := index[vol.GuestPath]; ok {
+			out[i] = vol
+			continue
+		}
+		index[vol.GuestPath] = len(out)
+		out = append(out, vol)
+	}
+	return out
 }
 
 // --- inspection/control ----------------------------------------------------

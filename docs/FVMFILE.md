@@ -66,9 +66,11 @@ no_auto_sleep: true
 | `user_data` | Shell script run once on first boot, before `entrypoint`/`command`. |
 | `user_data_file` | Script file, resolved relative to the `.fvmfile`. Mutually exclusive with `user_data`. |
 
-CLI `--name` still overrides the file name. Resource/network/port/env flags are
-not combined with `-f`; put them in the file instead. Extra `--volume` flags may
-be added to a file run.
+CLI flags override the corresponding `.fvmfile` fields. `--name` overrides the
+file name. `--env` merges per key (CLI wins), and `--volume` wins for a matching
+guest path. Other creation flags (`--image`, `--vcpus`, `--memory`, `--publish`,
+`--net`/`--no-net`, `--allow-host`, `--no-auto-sleep`) replace the file value
+only when explicitly passed.
 
 ## Entrypoint and command
 
