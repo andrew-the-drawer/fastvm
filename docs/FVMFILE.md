@@ -89,11 +89,12 @@ command: ["--help"]
 - `command` is the default argument list, used when no CLI args are given.
 - CLI args after `--` replace `command` and are appended to `entrypoint`.
 - `-w/--workdir` sets the guest working directory for the command and shell.
-`--auto-publish` discovers guest TCP listeners and maps them 1:1 on
-`127.0.0.1` at the same host port. If that host port is occupied, the mapping is
-skipped, warned once, and retried later; it is never reassigned to another
-port. Mapping, unmapping, and skip decisions emit sandbox events (`fastvmctl
-events`).
+`--auto-publish` discovers guest TCP listeners on ports >= 1024 and maps them 1:1
+on `127.0.0.1` at the same host port. Ports below 1024 are never auto-published;
+use an explicit `--publish/-p` mapping for those. If a host port is occupied,
+the mapping is skipped, warned once, and retried later; it is never reassigned
+to another port. Mapping, unmapping, and skip decisions emit sandbox events
+(`fastvmctl events`).
 `-v/--volume` supports `host[:guest][:ro]`; a single host path mounts at the same
 path in the guest.
 - `--entrypoint <cmd>` overrides `entrypoint` for one run, like Docker:

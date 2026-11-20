@@ -126,7 +126,7 @@ func addNetworkFlags(cmd *cobra.Command, opts *networkOptions) {
 	cmd.Flags().BoolVar(&opts.noNet, "no-net", false, "explicitly disable networking")
 	cmd.Flags().StringArrayVar(&opts.allowHosts, "allow-host", nil,
 		"allow egress only to this host (repeatable; implies --net)")
-	cmd.Flags().BoolVar(&opts.autoPublish, "auto-publish", false, "discover and publish guest TCP listening ports")
+	cmd.Flags().BoolVar(&opts.autoPublish, "auto-publish", false, "discover and publish guest TCP listening ports >= 1024")
 	cmd.Flags().BoolVar(&opts.noAutoSleep, "no-auto-sleep", false, "never auto-sleep")
 }
 
@@ -172,8 +172,10 @@ With -f, explicitly passed creation flags override the .fvmfile values; --env
 merges per key and --volume wins for a matching guest path. --entrypoint overrides
 the fvmfile entrypoint, like Docker's --entrypoint. -w/--workdir sets the guest
 working directory for the command and interactive shell. --auto-publish discovers
-guest TCP listeners and publishes them 1:1 on 127.0.0.1 at the same host port.
-Occupied host ports are skipped and retried later; they are never reassigned.`,
+guest TCP listeners >= 1024 and publishes them 1:1 on 127.0.0.1 at the same
+host port. Privileged ports are skipped; use an explicit --publish/-p mapping for
+them. Occupied host ports are skipped and retried later; they are never
+reassigned.`,
 		Example: `  fastvmctl run --net --image alpine -- uname -a
   fastvmctl run --net -it --image alpine -- /bin/sh
   fastvmctl run -f hack/codex.fvmfile

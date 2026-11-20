@@ -1067,7 +1067,7 @@ func TestAutoPublishPorts(t *testing.T) {
 	}
 	a := h.dial.last()
 	a.mu.Lock()
-	a.ports = []int{18080}
+	a.ports = []int{80, 18080}
 	a.mu.Unlock()
 
 	deadline := time.Now().Add(4 * time.Second)
@@ -1079,6 +1079,11 @@ func TestAutoPublishPorts(t *testing.T) {
 			got = append(got, h.net.portSets[sets-1]...)
 		}
 		h.net.mu.Unlock()
+		for _, p := range got {
+			if p.GuestPort == 80 {
+				t.Fatalf("privileged port was auto-published: %+v", p)
+			}
+		}
 		if len(got) == 1 && got[0].GuestPort == 18080 && got[0].Proto == "tcp" && got[0].HostPort == 18080 && got[0].LoopbackOnly {
 			events, err := h.d.Events(context.Background(), 20)
 			if err != nil {

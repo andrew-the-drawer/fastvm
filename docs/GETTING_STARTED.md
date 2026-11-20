@@ -207,8 +207,10 @@ only the sandbox ID/state/name.
 `--vcpus`, `--memory`, `--publish host:guest[/tcp|udp]`, `--env K=V`,
 `--volume host[:guest][:ro]` / `-v` (repeatable), `--no-auto-sleep`,
 `-w/--workdir <dir>`, `--auto-publish`, and `--entrypoint <cmd>` (override the
-image/fvmfile entrypoint) are available. Auto-published guest TCP listeners get
-ephemeral host ports in the 30000–39999 range; inspect them with `fastvmctl get`.
+image/fvmfile entrypoint) are available. Auto-published guest TCP listeners on
+ports >= 1024 map 1:1 to `127.0.0.1`; privileged ports require an explicit `-p`.
+Occupied host ports are skipped and retried, never reassigned. Inspect mappings
+with `fastvmctl get`.
 
 ### Host-directory volumes (virtio-fs)
 

@@ -78,8 +78,8 @@ func (d *Daemon) reconcileAutoPorts(rt *runtime) {
 	}
 	nextHost := make(map[int]int, len(ports))
 	for _, guest := range ports {
-		if guest < 1 || guest > 65535 || explicitGuest[guest] {
-			continue
+		if guest < 1024 || guest > 65535 || explicitGuest[guest] {
+			continue // privileged ports require an explicit --publish mapping
 		}
 		for _, p := range rt.autoBase {
 			if p.HostPort == guest && p.Proto == "tcp" {
