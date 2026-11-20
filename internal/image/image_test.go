@@ -603,39 +603,6 @@ func TestValidation(t *testing.T) {
 			},
 			wantErr: "control characters",
 		},
-		{
-			name: "build empty tag",
-			run: func() error {
-				_, err := b.Build(ctx, BuildSpec{ContextDir: root})
-				return err
-			},
-			wantErr: "tag is required",
-		},
-		{
-			name: "build empty context",
-			run: func() error {
-				_, err := b.Build(ctx, BuildSpec{Tag: "t:1"})
-				return err
-			},
-			wantErr: "build context dir is required",
-		},
-		{
-			name: "build missing context",
-			run: func() error {
-				_, err := b.Build(ctx, BuildSpec{Tag: "t:1", ContextDir: missing})
-				return err
-			},
-			wantErr: "build context",
-		},
-		{
-			name: "build missing Dockerfile",
-			run: func() error {
-				empty := t.TempDir()
-				_, err := b.Build(ctx, BuildSpec{Tag: "t:1", ContextDir: empty})
-				return err
-			},
-			wantErr: "Dockerfile",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -645,36 +612,6 @@ func TestValidation(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("error = %q, want it to contain %q", err, tc.wantErr)
-			}
-		})
-	}
-}
-
-func TestBuildDockerUnavailable(t *testing.T) {
-	dir := t.TempDir()
-	ctxDir := filepath.Join(dir, "ctx")
-	writeTestFile(t, filepath.Join(ctxDir, "Dockerfile"), "FROM scratch\n", 0o644)
-	ctx := t.Context()
-
-	tests := []struct {
-		name      string
-		dockerBin string
-	}{
-		{"missing docker binary", "/nonexistent/docker"},
-		{"failing docker binary", "false"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			b, err := NewBuilder(Options{BaseDir: filepath.Join(dir, "images"), DockerBin: tc.dockerBin})
-			if err != nil {
-				t.Fatalf("NewBuilder: %v", err)
-			}
-			_, err = b.Build(ctx, BuildSpec{Tag: "t:1", ContextDir: ctxDir, SizeGB: 1})
-			if !errors.Is(err, ErrDockerUnavailable) {
-				t.Fatalf("Build error = %v, want ErrDockerUnavailable", err)
-			}
-			if err == nil || !strings.Contains(err.Error(), "docker") {
-				t.Errorf("error should mention docker: %v", err)
 			}
 		})
 	}
@@ -812,5 +749,13 @@ func TestRemoveImageDeletesDiskAndAllTags(t *testing.T) {
 	}
 	if _, err := b.Remove(ctx, "remove:one"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second Remove error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPullRejectsEmptyRef(t *testing.T) {
+	dir := t.TempDir()
+	b := newTestBuilder(t, filepath.Join(dir, "images"))
+	if _, err := b.Pull(t.Context(), PullSpec{}); err == nil || !strings.Contains(err.Error(), "reference") {
+		t.Fatalf("Pull empty ref error = %v", err)
 	}
 }

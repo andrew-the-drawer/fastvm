@@ -47,7 +47,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/version", s.handleVersion)
 	s.mux.HandleFunc("GET /v1/images", s.handleListImages)
-	s.mux.HandleFunc("POST /v1/images/build", s.handleBuildImage)
+	s.mux.HandleFunc("POST /v1/images/pull", s.handlePullImage)
 	s.mux.HandleFunc("POST /v1/images/ingest", s.handleIngest)
 	s.mux.HandleFunc("DELETE /v1/images", s.handleRemoveImage)
 	s.mux.HandleFunc("GET /v1/sandboxes", s.handleList)
@@ -118,22 +118,18 @@ func (s *Server) handleListImages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, imgs)
 }
 
-type buildReq struct {
-	Dockerfile string `json:"dockerfile"`
-	Context    string `json:"context"`
-	Tag        string `json:"tag"`
-	SizeGB     int    `json:"size_gb"`
+type pullReq struct {
+	Ref    string `json:"ref"`
+	SizeGB int    `json:"size_gb"`
 }
 
-func (s *Server) handleBuildImage(w http.ResponseWriter, r *http.Request) {
-	var req buildReq
+func (s *Server) handlePullImage(w http.ResponseWriter, r *http.Request) {
+	var req pullReq
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	disk, err := s.images.BuildImage(r.Context(), manager.BuildOptions{
-		Dockerfile: req.Dockerfile, ContextDir: req.Context, Tag: req.Tag, SizeGB: req.SizeGB,
-	})
+	disk, err := s.images.PullImage(r.Context(), manager.PullOptions{Ref: req.Ref, SizeGB: req.SizeGB})
 	if err != nil {
 		writeErr(w, err)
 		return

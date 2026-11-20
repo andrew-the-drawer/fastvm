@@ -47,8 +47,6 @@ const (
 var (
 	// ErrNotFound is returned by Get when no base disk matches the reference.
 	ErrNotFound = errors.New("image not found")
-	// ErrDockerUnavailable means the docker CLI or daemon is not usable.
-	ErrDockerUnavailable = errors.New("docker unavailable")
 )
 
 // Options configures a Builder.
@@ -61,22 +59,22 @@ type Options struct {
 	// InitPath is an optional custom init executable. Empty uses the static
 	// agent as /init (or a minimal shell fallback when no agent is injected).
 	InitPath string
-	// DockerBin is the docker CLI to use (default "docker").
-	DockerBin string
 	// WorkDir is where temporary rootfs/disk files are created (default
 	// BaseDir, which guarantees same-filesystem renames).
 	WorkDir string
+	// InsecureRegistry allows plain HTTP registry pulls (local/test registries).
+	InsecureRegistry bool
 }
 
 // FSBuilder is the concrete Builder implementation. It stores content-addressed
 // ext4 base disks and records tag -> digest mappings.
 type FSBuilder struct {
-	baseDir   string
-	workDir   string
-	agentPath string
-	initPath  string
-	dockerBin string
-	mke2fsBin string
+	baseDir          string
+	workDir          string
+	agentPath        string
+	initPath         string
+	insecureRegistry bool
+	mke2fsBin        string
 
 	now    func() time.Time
 	runCmd func(ctx context.Context, extraEnv []string, name string, args ...string) ([]byte, error)
@@ -105,22 +103,19 @@ func NewBuilder(opts Options) (*FSBuilder, error) {
 	if err := os.MkdirAll(workDir, 0o700); err != nil {
 		return nil, fmt.Errorf("image: create work dir %q: %w", workDir, err)
 	}
-	dockerBin := opts.DockerBin
-	if dockerBin == "" {
-		dockerBin = "docker"
-	}
 	return &FSBuilder{
-		baseDir:   baseDir,
-		workDir:   workDir,
-		agentPath: opts.AgentPath,
-		initPath:  opts.InitPath,
-		dockerBin: dockerBin,
-		mke2fsBin: "mke2fs",
-		now:       time.Now,
+		baseDir:          baseDir,
+		workDir:          workDir,
+		agentPath:        opts.AgentPath,
+		initPath:         opts.InitPath,
+		insecureRegistry: opts.InsecureRegistry,
+		mke2fsBin:        "mke2fs",
+		now:              time.Now,
 	}, nil
 }
 
 // Ingest converts an unpacked rootfs directory into a cached ext4 base disk.
+// Pull is the normal production path; Ingest is used for offline/rootfs tests.
 func (b *FSBuilder) Ingest(ctx context.Context, spec IngestSpec) (types.BaseDisk, error) {
 	return b.makeBaseDisk(ctx, baseDiskRequest{
 		srcRootfs:  spec.RootfsDir,
@@ -130,39 +125,6 @@ func (b *FSBuilder) Ingest(ctx context.Context, spec IngestSpec) (types.BaseDisk
 		agentPath:  spec.AgentPath,
 		initPath:   spec.InitPath,
 		source:     "rootfs",
-	})
-}
-
-// Build turns a Dockerfile into a cached ext4 base disk.
-//
-// The image is built with BuildKit (DOCKER_BUILDKIT=1 docker build --iidfile
-// so no user tag is clobbered), exported with docker export and unpacked into a
-// temporary rootfs, then run through the same inject + mke2fs pipeline as
-// Ingest. Nothing is ever pushed to a registry.
-func (b *FSBuilder) Build(ctx context.Context, spec BuildSpec) (types.BaseDisk, error) {
-	if err := ctx.Err(); err != nil {
-		return types.BaseDisk{}, err
-	}
-	if strings.TrimSpace(spec.Tag) == "" {
-		return types.BaseDisk{}, errors.New("image: build tag is required")
-	}
-	if strings.TrimSpace(spec.ContextDir) == "" {
-		return types.BaseDisk{}, errors.New("image: build context dir is required")
-	}
-	rootfsDir, cleanup, err := b.dockerRootfs(ctx, spec)
-	if err != nil {
-		return types.BaseDisk{}, err
-	}
-	defer cleanup()
-	return b.makeBaseDisk(ctx, baseDiskRequest{
-		srcRootfs:  rootfsDir,
-		copySource: false, // dockerRootfs handed us a disposable temp rootfs
-		tag:        spec.Tag,
-		sizeGB:     spec.SizeGB,
-		agentPath:  spec.AgentPath,
-		initPath:   spec.InitPath,
-		source:     "dockerfile",
-		kernelPath: spec.KernelPath,
 	})
 }
 

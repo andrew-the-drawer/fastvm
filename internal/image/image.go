@@ -1,4 +1,4 @@
-// Package image builds content-addressed ext4 base disks from Dockerfiles or
+// Package image builds content-addressed ext4 base disks from OCI images or
 // rootfs directories (docs/DESIGN.md §6.5).
 package image
 
@@ -8,15 +8,12 @@ import (
 	"fastvm/internal/types"
 )
 
-// BuildSpec is a Dockerfile build request.
-type BuildSpec struct {
-	Dockerfile string // path to Dockerfile (default: <context>/Dockerfile)
-	ContextDir string // build context
-	Tag        string // image name/tag, e.g. "nginx:alpine"
-	SizeGB     int    // base disk size; 0 = default
-	KernelPath string // optional pinned kernel to record (not embedded)
-	AgentPath  string // guest agent binary to inject
-	InitPath   string // optional custom guest init to inject
+// PullSpec is an OCI image pull request.
+type PullSpec struct {
+	Ref       string // image reference, e.g. "nginx:alpine"
+	SizeGB    int    // base disk size; 0 = default
+	AgentPath string // guest agent binary to inject
+	InitPath  string // optional custom guest init to inject
 }
 
 // IngestSpec imports an already-unpacked rootfs.
@@ -30,9 +27,9 @@ type IngestSpec struct {
 
 // Builder builds and stores base disks.
 type Builder interface {
-	// Build turns a Dockerfile into an OCI image, unpacks it, injects the guest
-	// agent/init, and writes an ext4 base disk.
-	Build(ctx context.Context, spec BuildSpec) (types.BaseDisk, error)
+	// Pull downloads an OCI image, unpacks it, injects the guest agent/init,
+	// and writes an ext4 base disk.
+	Pull(ctx context.Context, spec PullSpec) (types.BaseDisk, error)
 	// Ingest converts a rootfs directory into an ext4 base disk.
 	Ingest(ctx context.Context, spec IngestSpec) (types.BaseDisk, error)
 	// List returns all cached base disks.

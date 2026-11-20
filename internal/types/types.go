@@ -46,8 +46,8 @@ type PortMapping struct {
 	Proto     string `json:"proto"` // "tcp" or "udp"
 }
 
-// BaseDisk is a read-only, content-addressed ext4 image built from a Dockerfile
-// or a rootfs (docs/DESIGN.md §6.5).
+// BaseDisk is a read-only, content-addressed ext4 image built from an OCI
+// image or a rootfs (docs/DESIGN.md §6.5).
 type BaseDisk struct {
 	Name      string    `json:"name"`
 	Tag       string    `json:"tag,omitempty"`
@@ -55,7 +55,7 @@ type BaseDisk struct {
 	Digest    string    `json:"digest"`
 	Path      string    `json:"path"`
 	SizeBytes int64     `json:"size_bytes"`
-	Source    string    `json:"source"` // "dockerfile" or "rootfs"
+	Source    string    `json:"source"` // "registry" or "rootfs"
 	CreatedAt time.Time `json:"created_at"`
 }
 

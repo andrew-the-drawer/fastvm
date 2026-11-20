@@ -25,9 +25,8 @@ on `/var/tmp` (disk-backed) to avoid consuming RAM in `/tmp` (tmpfs).
 | Arch Linux, root/sudo | `losetup`/`mount` and `fastvmd` (TAP/bridge/nftables) need root. |
 | `xfsprogs` | `mkfs.xfs`, `xfs_info`. Arch package `xfsprogs`. |
 | `util-linux` | `losetup`, `findmnt`, `mount`. |
-| `e2fsprogs` | `filefrag` (and `mkfs.ext4` for image builds). |
+| `e2fsprogs` | `filefrag` (and `mkfs.ext4` for base disks). |
 | `jq` | Read the volume sidecar JSON. |
-| `docker` | `make image` builds the demo base disk. |
 | `cloud-hypervisor` (or `cloud-hypervisor-static`) + `/dev/kvm` | Boot the sandbox. |
 | `go` + `make` | Build fastvm. |
 
@@ -147,10 +146,10 @@ Terminal 2:
 SOCK=/tmp/fastvm-cow/fastvm.sock
 cd /path/to/fastvm
 
-sudo make image FASTVM_SOCKET="$SOCK"     # builds hack/Dockerfile.example -> demo:latest
+sudo bin/fastvmctl --socket "$SOCK" image pull alpine:3.20
 
 sudo bin/fastvmctl --socket "$SOCK" run \
-  --image demo:latest --name cowtest --no-auto-sleep -- \
+  --image alpine:3.20 --name cowtest --no-auto-sleep -- \
   /bin/sh -c 'while true; do sleep 5; done'
 ```
 

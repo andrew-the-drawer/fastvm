@@ -11,23 +11,23 @@ import (
 	"fastvm/internal/types"
 )
 
-type imageBuildResult struct {
+type imagePullResult struct {
 	disk types.BaseDisk
 	err  error
 }
 
-type imageBuildModel struct {
+type imagePullModel struct {
 	ref     string
 	spinner spinner.Model
 	start   time.Time
-	result  <-chan imageBuildResult
+	result  <-chan imagePullResult
 	done    bool
 	disk    types.BaseDisk
 	err     error
 }
 
-func newImageBuildModel(ref string, result <-chan imageBuildResult) imageBuildModel {
-	return imageBuildModel{
+func newImagePullModel(ref string, result <-chan imagePullResult) imagePullModel {
+	return imagePullModel{
 		ref:     ref,
 		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		start:   time.Now(),
@@ -35,26 +35,26 @@ func newImageBuildModel(ref string, result <-chan imageBuildResult) imageBuildMo
 	}
 }
 
-func (m imageBuildModel) Init() tea.Cmd {
+func (m imagePullModel) Init() tea.Cmd {
 	return tea.Batch(
 		func() tea.Msg { return m.spinner.Tick() },
-		waitForImageBuild(m.result),
+		waitForImagePull(m.result),
 	)
 }
 
-func waitForImageBuild(ch <-chan imageBuildResult) tea.Cmd {
+func waitForImagePull(ch <-chan imagePullResult) tea.Cmd {
 	return func() tea.Msg {
 		return <-ch
 	}
 }
 
-func (m imageBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m imagePullModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
-	case imageBuildResult:
+	case imagePullResult:
 		m.done = true
 		m.disk = msg.disk
 		m.err = msg.err
@@ -64,14 +64,14 @@ func (m imageBuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m imageBuildModel) View() tea.View {
+func (m imagePullModel) View() tea.View {
 	if m.done {
 		return tea.NewView("")
 	}
 	return tea.NewView(fmt.Sprintf(
-		"%s Building image %s\n\n"+
-			"  This can take a while on the first build:\n"+
-			"  docker build → export rootfs → inject agent → create ext4 disk\n\n"+
+		"%s Pulling image %s\n\n"+
+			"  This can take a while on the first pull:\n"+
+			"  pull → unpack rootfs → inject agent → create ext4 disk\n\n"+
 			"  elapsed %s",
 		m.spinner.View(),
 		m.ref,
@@ -79,34 +79,36 @@ func (m imageBuildModel) View() tea.View {
 	))
 }
 
-// buildImageWithProgress runs a synchronous image build behind a Bubbles
+// pullImageWithProgress runs a synchronous image pull behind a Bubbles
 // spinner when the CLI is attached to a terminal. Non-interactive callers get
 // a single status line on stderr instead, preserving machine-readable stdout.
-func buildImageWithProgress(ref string, build func() (types.BaseDisk, error)) (types.BaseDisk, error) {
+func pullImageWithProgress(ref string, pull func() (types.BaseDisk, error)) (types.BaseDisk, error) {
+	// Print this before the spinner as well, so the first pull is visible even
+	// when terminal progress rendering is unavailable.
+	fmt.Fprintf(os.Stderr, "pulling image %s (the first pull can take a while)...\n", ref)
 	info, err := os.Stderr.Stat()
 	if err != nil || info.Mode()&os.ModeCharDevice == 0 || os.Getenv("TERM") == "dumb" {
-		fmt.Fprintf(os.Stderr, "building image %s...\n", ref)
-		return build()
+		return pull()
 	}
 
-	results := make(chan imageBuildResult, 1)
+	results := make(chan imagePullResult, 1)
 	go func() {
-		disk, buildErr := build()
-		results <- imageBuildResult{disk: disk, err: buildErr}
+		disk, pullErr := pull()
+		results <- imagePullResult{disk: disk, err: pullErr}
 	}()
 
-	model := newImageBuildModel(ref, results)
+	model := newImagePullModel(ref, results)
 	final, err := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return types.BaseDisk{}, err
 	}
-	done, ok := final.(imageBuildModel)
+	done, ok := final.(imagePullModel)
 	if !ok {
-		return types.BaseDisk{}, fmt.Errorf("image build progress: unexpected model %T", final)
+		return types.BaseDisk{}, fmt.Errorf("image pull progress: unexpected model %T", final)
 	}
 	if done.err != nil {
 		return types.BaseDisk{}, done.err
 	}
-	fmt.Fprintf(os.Stderr, "✓ built image %s (%s)\n", done.ref, short(done.disk.Digest))
+	fmt.Fprintf(os.Stderr, "✓ pulled image %s (%s)\n", done.ref, short(done.disk.Digest))
 	return done.disk, nil
 }

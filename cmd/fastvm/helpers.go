@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,8 +33,8 @@ func parseVolumes(raw []string) ([]types.Volume, error) {
 
 var imageRefRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]*$`)
 
-// ensureImage builds a base disk from a Docker image reference on demand when
-// the image is not in the daemon's content-addressed image store yet.
+// ensureImage pulls an OCI image into the daemon's image store when it is not
+// already present. No Docker daemon or CLI is involved.
 func ensureImage(ref string) error {
 	var disks []types.BaseDisk
 	if err := getJSON("/v1/images", &disks); err != nil {
@@ -53,25 +51,14 @@ func ensureImage(ref string) error {
 		}
 	}
 	if !imageRefRE.MatchString(ref) {
-		return fmt.Errorf("image %q is not a valid Docker image reference", ref)
+		return fmt.Errorf("image %q is not a valid image reference", ref)
 	}
-	dir, err := os.MkdirTemp("", "fastvm-image-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-	dockerfile := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dockerfile, []byte("FROM "+ref+"\n"), 0o644); err != nil {
-		return err
-	}
-	if _, err := buildImageWithProgress(ref, func() (types.BaseDisk, error) {
-		var built types.BaseDisk
-		if err := do(http.MethodPost, "/v1/images/build", map[string]any{
-			"dockerfile": dockerfile, "context": dir, "tag": ref,
-		}, &built); err != nil {
-			return types.BaseDisk{}, fmt.Errorf("build image %q: %w", ref, err)
+	if _, err := pullImageWithProgress(ref, func() (types.BaseDisk, error) {
+		var pulled types.BaseDisk
+		if err := do(http.MethodPost, "/v1/images/pull", map[string]any{"ref": ref}, &pulled); err != nil {
+			return types.BaseDisk{}, fmt.Errorf("pull image %q: %w", ref, err)
 		}
-		return built, nil
+		return pulled, nil
 	}); err != nil {
 		return err
 	}

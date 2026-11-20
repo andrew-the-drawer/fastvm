@@ -13,7 +13,7 @@
 > paused). Boot/wake timing is being re-baselined; see
 > [CLOUD_HYPERVISOR_MIGRATION.md](CLOUD_HYPERVISOR_MIGRATION.md).
 >
-> **Rev 5** — image pipeline (Dockerfile → base disk via BuildKit), CoW runtime
+> **Rev 5** — image pipeline (OCI registry pull → base disk), CoW runtime
 > volumes, and an eBPF L2 switch that forwards frames, isolates sandboxes,
 > counts traffic, and emits the wake event. Wake path and offload model from
 > Rev 4 are unchanged: packets flow into the guest's own queue; no parking,
@@ -59,8 +59,8 @@ process-dead**. The element that receives packets — the VMM's virtio-net devic
 sleep with the VMM exited is explicitly post-v0.1 (§4) because it has no live
 queue and would need a different wake mechanism.
 
-Supporting machinery: base disks are **built from Dockerfiles** (BuildKit → OCI
-→ ext4, content-addressed and cached) and every sandbox runs on a **CoW runtime
+Supporting machinery: base disks are **pulled from OCI registries** (image →
+rootfs → ext4, content-addressed and cached) and every sandbox runs on a **CoW runtime
 volume** cloned from that base in milliseconds. Networking is an **eBPF L2
 switch**: frames are forwarded to the right sandbox port, per-port isolation and
 anti-spoofing are enforced in the kernel, counters feed activity detection, and
@@ -81,7 +81,7 @@ Hypervisor, QEMU, Firecracker), not sandbox lifecycle. Operators end up:
 - writing bespoke pause/resume/snapshot scripts and network plumbing;
 - choosing between keeping everything warm (expensive) and cold-booting on
   every request (slow, stateful workloads impossible);
-- turning Dockerfiles into bootable VM disks and cloning them per sandbox
+- turning OCI images into bootable VM disks and cloning them per sandbox
   without slow full copies.
 
 The desired behavior is a **self-managing sandbox**: it knows when nobody is
@@ -102,9 +102,9 @@ queue.
   sessions (shell/agent commands).
 - **Guest:** Linux x86_64, from an OCI image rootfs, kernel supplied by fastvm
   (pinned), minimal init + fastvm guest agent.
-- **Images:** base disks are built from Dockerfiles (`fastvm image build`), cached by
-  digest, and shared read-only; each sandbox gets a CoW runtime volume cloned
-  from one.
+- **Images:** base disks are pulled from OCI registries (`fastvm image pull`),
+  cached by digest, and shared read-only; each sandbox gets a CoW runtime volume
+  cloned from one.
 - **Networking:** each sandbox gets a virtual L2 port on a per-host eBPF switch;
   by default it can reach the host/uplink but not other sandboxes.
 - **Trust model v0.1:** single-operator host, but *guest code is untrusted with
@@ -150,9 +150,9 @@ workloads), say so now — it changes the networking and threat-model milestones
 - **G8 — Efficient.** Density is bounded by real memory, not by bookkeeping:
   100+ dormant sandboxes on one 64 GB host within a 12 GB daemon+RSS budget
   (per-sandbox VMM overhead is accounted for explicitly).
-- **G9 — Image pipeline.** Build bootable base disks from Dockerfiles fast:
-  Dockerfile → OCI image (BuildKit) → ext4 base disk, content-addressed,
-  cached, and shared across sandboxes.
+- **G9 — Image pipeline.** Pull bootable base disks from OCI registries:
+  image → rootfs → ext4 base disk, content-addressed, cached, and shared across
+  sandboxes.
 - **G10 — CoW runtime volumes.** Creating a sandbox is an instant copy-on-write
   clone of its base disk (reflink or dm-thin, no full copy); writes are
   isolated, the volume persists across pause/dormant, and it is discarded on
@@ -189,18 +189,17 @@ Explicitly out of scope; re-evaluate only after the definition of done (§9).
 - **Browser GUI.**
 - **Cloning/fan-out from one memory image** (guest identity/RNG duplication).
 - **Encryption at rest for memory images** (v0.2+; they contain guest secrets).
-- **Docker/containerd as the sandbox runtime.** BuildKit is used only to build
-  base disks; sandboxes are microVMs, not containers.
-- **A from-scratch Dockerfile build engine.** fastvm image builds via BuildKit and
-  converts the resulting OCI image; Dockerfile semantics beyond that are out of
-  scope.
+- **Docker/containerd as the sandbox runtime.** fastvm pulls OCI images directly
+  from registries; sandboxes are microVMs, not containers.
+- **A Dockerfile build engine.** fastvm does not build images; it only pulls
+  existing OCI images.
 - **Sandbox-to-sandbox L2 connectivity by default.** The eBPF switch isolates
   ports; opt-in connectivity/ACLs are post-v0.1.
 - **eBPF-based NAT/L4 or hardware XDP offload.** The switch does L2 forwarding;
   NAT/DNAT stay in nftables, and only generic tc/XDP is in scope.
 - **Disk snapshots/rollback, volume resize, persistent user volumes.** Runtime
   volumes are ephemeral CoW clones; memory offload covers sleep state.
-- **Multi-arch image builds** (x86_64 guests first).
+- **Multi-arch image pulls** (x86_64 guests first).
 - **Hostile multi-tenant operation.** Per-sandbox netns is core (M2) and VMM
   hardening (Cloud Hypervisor seccomp/Landlock, sandboxed virtiofsd; CH has no
   jailer) lands in M7, but mutually hostile tenants are a v1.0 concern.
@@ -462,7 +461,7 @@ state transitions.
                       │    │           │                 ▲             │
                       │    ▼           ▼                 │ wake event  │
                       │ builder     VMM driver       eBPF L2 switch    │
-                      │ (BuildKit) (Cloud Hypervisor) (tc eBPF + maps)  │
+                      │ (OCI pull) (Cloud Hypervisor) (tc eBPF + maps)  │
                       │    │           │                               │
                       │    │     snapshot + restore (CH)               │
                       └────┼───────────┼─────────────────▲────────┬────┘
@@ -494,7 +493,7 @@ actual VMM process on startup.
 | **VMM driver (`internal/vmm`)** | Interface: `Create, Start, Pause, Resume, Snapshot, Restore, Stop, Stats`. The Cloud Hypervisor driver launches one `cloud-hypervisor` process per sandbox (all devices at launch) and drives pause/resume/snapshot/shutdown through CH's REST API over a per-sandbox unix socket (no cgo). Host-directory volumes add one `virtiofsd` process and one `--fs` device per share. |
 | **Wake dispatcher (`internal/wake`)** | Consumes wake notifications from the eBPF switch (AF_PACKET tap fallback in bridge mode); coalesces bursts, rate-limits scans, marks `wake_no_response`. It never holds, injects, or reorders frames. |
 | **eBPF L2 switch (`internal/switch`)** | Per-host tc `clsact` eBPF programs + BPF maps: static MAC→port table, `bpf_redirect` between sandbox TAPs and the uplink, per-port MAC anti-spoofing, default sandbox isolation, per-port byte/packet counters, and a ringbuf wake-event channel. Loaded via `cilium/ebpf`; bridge-mode fallback for dev/CI. |
-| **Builder (`internal/build`)** | Dockerfile → OCI image via BuildKit → unpacked rootfs → ext4 base disk (guest agent + init injected); content-addressed cache; `fastvm image build`/`images`. |
+| **Image builder (`internal/image`)** | OCI registry pull → unpacked rootfs → ext4 base disk (guest agent + init injected); content-addressed cache; `fastvm image pull`/`image ls`. |
 | **Volumes (`internal/volume`)** | Base-disk store (read-only, content-addressed) and per-sandbox CoW runtime volumes (reflink default, dm-thin fallback); clone, attach, discard, GC, refcounts. Host-directory volumes are validated against `volumes.allowed_host_prefixes` and attached at create time (virtio-fs, static). |
 | **Network (`internal/network`)** | Per-sandbox TAP as switch port + shared `fvup`/`fvuplink` uplink veth, nftables NAT/DNAT for published ports, static neighbor entries, MAC/IP allocation. |
 | **Snapshot & restore (`internal/snapshot`)** | Cloud Hypervisor snapshots (config + memory + device state) of the paused VM, restore with `--restore` (starts paused; file-backed memory, kernel demand paging), virtiofsd restart before restore, restore-time measurement, fsync/GC, disk budget. CH's `ondemand`/`copyonwrite` (uffd) restore modes are a later optimisation. |
@@ -505,9 +504,9 @@ actual VMM process on startup.
 
 ### 6.3 Key data flows
 
-**Build** → Dockerfile + context → BuildKit → OCI image → unpack rootfs →
-inject guest agent + init config → `mke2fs -d` → content-addressed base disk
-(sha256) → cache; `fastvm image build`/`images` expose it.
+**Pull** → OCI image → unpack rootfs → inject guest agent + init config →
+`mke2fs -d` → content-addressed base disk (sha256) → cache; `fastvm image
+pull`/`image ls` expose it.
 
 **Cold start** → base-disk digest resolve → CoW runtime volume clone
 (reflink/dm-thin, milliseconds) → switch port (static MAC + /30 address) →
@@ -605,16 +604,14 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 
 ### 6.5 Storage: base disks, CoW runtime volumes, host shares
 
-- **Base disks** are built from Dockerfiles (or ingested OCI images) as raw
-  ext4 images: BuildKit produces the OCI image, fastvm unpacks the rootfs,
-  injects the guest agent + init configuration, and creates the disk with
-  `mke2fs -d`. The result is content-addressed (sha256), read-only, and shared
+- **Base disks** are pulled from OCI registries (or ingested rootfs trees) as raw
+  ext4 images: fastvm pulls and flattens the image, injects the guest agent +
+  init configuration, and creates the disk with `mke2fs -d`. The result is content-addressed (sha256), read-only, and shared
   by every sandbox using that image; the pinned kernel stays separate.
-- **Build pipeline:** `fastvm image build -f Dockerfile -t name:tag` → BuildKit → OCI
-  → base disk; `fastvm image ls` lists disks and digests. BuildKit's layer cache
-  and the base-disk cache are content-keyed, so unchanged rebuilds are cheap,
-  and a sandbox keeps the base digest it was created with even after a newer
-  image is built.
+- **Pull pipeline:** `fastvm image pull name:tag` → OCI registry → rootfs →
+  base disk; `fastvm image ls` lists disks and digests. The base-disk cache is
+  content-keyed, so unchanged pulls are cheap, and a sandbox keeps the base
+  digest it was created with even after a newer image is pulled.
 - **CoW runtime volumes.** Each sandbox gets a writable raw volume cloned from
   its base disk in milliseconds: `reflink` (`FICLONE` on XFS/Btrfs) by default,
   `dm-thin` snapshots as the fallback for hosts without reflink, full `copy` as
@@ -645,8 +642,8 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
   filesystem without host-side disk snapshots.
 - **Disk budget.** Base disks and volumes are accounted separately; GC evicts
   unused bases (LRU) but refuses to evict one with live derived volumes.
-- **Security.** Dockerfile builds go through BuildKit (rootless or a configured
-  daemon socket); base disks and volumes are `0600`, daemon-owned.
+- **Security.** Registry pulls use the Docker config keychain; no Docker daemon
+  is involved. Base disks and volumes are `0600`, daemon-owned.
 
 ### 6.6 Networking model: eBPF L2 switch
 
@@ -710,7 +707,7 @@ the CoW volume and memory image; drop the base-disk reference; delete record.
 | 11 | Network topology | Per-sandbox netns + veth pair + eBPF switch ports; nftables DNAT ingress | Linux bridge; shared host TAP/bridge; macvtap | Clean wake boundary, per-port isolation, counters and wake events in-kernel | IPv6; eBPF offload; netns hardening |
 | 12 | Wake buffering | **Device queue + TAP kernel queue** | User-space parking queue; proxy | Bounded, in-path, no replay logic | RX queue sizing after benchmarks |
 | 13 | Runtime volumes | **CoW clone: reflink by default, dm-thin fallback** | Guest overlayfs; full copy; qcow2 | Millisecond clones, block sharing, raw devices Cloud Hypervisor accepts | dm-thin default if reflink filesystems are not guaranteed |
-| 14 | Image build | **Dockerfile → BuildKit → OCI → ext4 base disk** | Custom Dockerfile builder; docker buildx; container2vm-style converters | BuildKit gives correct Dockerfile semantics and caching; fastvm owns rootfs→disk conversion | BuildKit dependency/version policy; remote builders later |
+| 14 | Image pull | **OCI registry → rootfs → ext4 base disk** | Docker CLI/daemon; BuildKit; container2vm-style converters | Direct registry pull removes Docker dependencies; fastvm owns rootfs→disk conversion | Registry auth/proxy policy; multi-arch later |
 | 15 | L2 switch | **tc `clsact` eBPF programs + BPF maps** | Linux bridge; OVS; XDP-native-only | Redirect, isolation, counters, and wake events with one data-plane program; generic tc works on veths | XDP-native optimization; per-host program reload/rollback |
 | 16 | Host-directory volumes | **virtio-fs: CH `--fs` + one virtiofsd per share; absolute host paths allowlisted via `volumes.allowed_host_prefixes`; static at create** | 9p; copy-in/copy-out; overlayfs | Native read-write host shares without copying; persists across pause/dormant; no DAX/hotplug (single queue) | Hotplug/DAX if CH support improves; virtiofsd sandboxing in M7 |
 
@@ -722,7 +719,7 @@ cmd/fastvmd/          daemon
 internal/api/         HTTP/JSON + events
 internal/lifecycle/   state machine, actors, policies, reconciler
 internal/vmm/         driver interface, cloudhypervisor/ driver
-internal/build/       Dockerfile -> OCI (BuildKit) -> base ext4 disk
+internal/image/       OCI registry pull -> base ext4 disk
 internal/volume/      base-disk store, CoW clones, host-share attach, GC/refcounts
 internal/switch/      eBPF L2 switch loader + programs (bpf2go)
 internal/network/     netns, veth, tap, in-netns bridge, nat/dnat, neighbors
@@ -753,12 +750,13 @@ loading, ADR-0001 (VMM choice), README stub.
 without KVM and reports healthy; `fastvm version`/`ls` work.
 
 ### M1 — Image build pipeline (M)
-Dockerfile + context → BuildKit → OCI image → unpacked rootfs → guest agent +
-init injection → ext4 base disk; content-addressed base-disk cache;
-`fastvm image build`, `fastvm image ls`; test-image corpus in CI.
-**Exit:** nginx and a multi-stage Dockerfile both build to bootable base disks;
-an unchanged rebuild hits the cache without rebuilding; base-disk identity is
-content-addressed and stable for identical inputs; base disk boots in a QEMU/TCG smoke test; CI job green.
+OCI image pull → flattened rootfs → guest agent + init injection → ext4 base
+disk; content-addressed base-disk cache; `fastvm image pull`, `fastvm image ls`;
+test-image corpus in CI.
+**Exit:** public images pull into bootable base disks; an unchanged pull hits
+the cache without rebuilding; base-disk identity is content-addressed and
+stable for identical inputs; base disk boots in a QEMU/TCG smoke test; CI job
+green.
 
 ### M2 — Cold boot + CoW runtime volumes (M/L)
 Base-disk store; CoW volume clone (reflink default, dm-thin fallback, copy as
@@ -829,7 +827,7 @@ migration; dormant-wake targets met.
 VMM hardening: Cloud Hypervisor seccomp + Landlock, sandboxed virtiofsd (CH has
 no jailer); eBPF program hardening (verifier limits, map
 concurrency, program rollback, fuzz); build-pipeline security (rootless
-BuildKit, cache poisoning, Dockerfile trust boundary); memory-image page-cache
+registry trust, cache poisoning); memory-image page-cache
 behaviour (cold-start tails, readahead/prefetch); optional uffd mode (if
 adopted); snapshot GC verification; at-rest encryption design (or
 implementation, if cheap); crash-injection and state-machine property/fuzz
@@ -857,8 +855,8 @@ noted; page-cache state recorded for every number.
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | Cold boot (spawn → agent Ready) | measured ~0.6 s with Cloud Hypervisor; targets to be re-baselined (old Firecracker goal was p50 ≤ 150 ms, p95 ≤ 300 ms) | 100 cold starts, lifecycle event timestamps |
-| Base-disk build, unchanged Dockerfile (cache hit) | no layer rebuild; ≤ 500 ms | build timestamps |
-| Dockerfile → bootable base disk (small image, cold) | ≤ 60 s; recorded baseline per image | build log |
+| Base-disk pull, cache hit | no layer rebuild; ≤ 500 ms | timestamps |
+| OCI image → bootable base disk (small image, cold) | ≤ 60 s; recorded baseline per image | pull log |
 | CoW volume clone | p50 ≤ 10 ms, p95 ≤ 50 ms (reflink); ≤ 200 ms (dm-thin) | clone timestamps |
 | Volume write isolation | 0 cross-sandbox writes in the suite | e2e |
 | eBPF switch wake-event latency | ≤ 1 ms frame → ringbuf event | BPF timestamps |
@@ -889,8 +887,8 @@ noted; page-cache state recorded for every number.
 
 A reproducible demo on one KVM host, no manual lifecycle steps:
 
-1. `fastvm image build` from a Dockerfile produces a content-addressed base disk; a
-   sandbox from it boots; an unchanged rebuild is served from cache.
+1. `fastvm image pull` produces a content-addressed base disk; a sandbox from it
+   boots; an unchanged pull is served from cache.
 2. Ten sandboxes cloned from one base share underlying disk blocks; writes are
    isolated; clone time and `fastvm rm` reclamation are within targets.
 3. `fastvm run` three sandboxes from built images (a web server, a batch job,
@@ -915,7 +913,7 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 10. 24 h, 100-sandbox churn soak passes §8; benchmark report committed.
 11. Docs: README quickstart, architecture overview, lifecycle/state-machine
     reference, runbook, and ADRs for VMM choice, sleeping model, snapshot
-    restore, image build, CoW volumes, host shares, and the eBPF switch.
+    restore, image pull, CoW volumes, host shares, and the eBPF switch.
 
 ---
 
@@ -926,7 +924,7 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 | **No KVM on the dev box** (currently `/dev/kvm` is absent even though AMD-V and the kvm modules are loaded) | Blocks all real testing | Confirm nested-virt/device passthrough or designate a remote KVM host; KVM-gated CI job with QEMU/TCG functional fallback; perf gates only on KVM |
 | eBPF kernel/BTF portability and verifier limits | Switch unavailable on some hosts, dev friction | Documented minimum kernel; `switch.mode=bridge` fallback; CI kernel matrix; clear startup error with the fallback hint |
 | eBPF program bugs (loops, stale maps, missed redirect) | Broken traffic or silent isolation gaps | Verifier-friendly program; netns-based unit tests; staged attach with rollback; bridge fallback |
-| BuildKit dependency and untrusted Dockerfiles | Build failures or host exposure | Pin BuildKit version; rootless/sandboxed build service; documented trust boundary; no host mounts |
+| Registry auth/proxy and untrusted images | Pull failures or untrusted rootfs | Documented credentials/proxy policy; verify layer digests; no Docker daemon or host mounts |
 | CoW mechanism unavailable or corruption | Slow copy fallback or damaged disks | Detect reflink support; dm-thin fallback; copy last resort; integrity tests; fsync volume at offload |
 | Base-disk / volume reference leaks | Disk exhaustion over time | Refcounted GC, per-host disk budget, soak leak checks |
 | Build cache poisoning | Wrong or tampered base disk | Content-addressed digests, verify layer digests, builder trust boundary |
@@ -991,9 +989,8 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
     `/dev/kvm` exposed) vs. a dedicated KVM host; needed to lock the §8
     baselines.
 13. **IPv6** — default IPv4-only for v0.1.
-14. **Build backend** — default: BuildKit via a local (rootless) daemon/socket
-    with a pinned version; remote builders and `buildx` are post-v0.1. Confirm
-    the environment can run BuildKit (rootless or root daemon).
+14. **Registry access** — default: direct OCI registry pull; no Docker daemon or
+    CLI. Document credential/proxy policy and supported registries.
 15. **CoW mechanism** — default reflink on XFS/Btrfs, dm-thin fallback; confirm
     the reference host's filesystem and whether a thin pool is available.
 16. **eBPF switch rollout** — default: eBPF mode on kernels with tc/BTF support
@@ -1002,9 +999,8 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 17. **Sandbox↔sandbox networking** — default **denied** (isolated ports). If a
     shared L2 segment between sandboxes is expected, that changes switch policy
     and is opt-in.
-18. **Dockerfile scope** — multi-stage builds are supported through BuildKit;
-    build secrets (`--secret`), `RUN --mount`, and multi-arch are out of scope
-    for v0.1 unless requested.
+18. **Image source** — only existing OCI images are pulled; Dockerfile builds,
+    build secrets, and build-arg semantics are out of scope.
 19. **Idle thresholds** — defaults: 30 s debounce, CPU < 1% (windowed) to
     permit sleep, 5% to leave `Idle`, 64 KiB block-I/O budget, stdout not
     counted. Confirm these fit the workload mix; health-check traffic counts as
@@ -1049,8 +1045,8 @@ A reproducible demo on one KVM host, no manual lifecycle steps:
 - **Cloud Hypervisor kernel images:**
   <https://github.com/cloud-hypervisor/linux/releases> (fastvm pins a prebuilt
   `vmlinux-x86_64` from this project; see `test/e2e/fetch-assets.sh`).
-- **BuildKit** (Dockerfile frontend, layer cache):
-  <https://github.com/moby/buildkit>.
+- **go-containerregistry** (OCI pull/keychain):
+  <https://github.com/google/go-containerregistry>.
 - **cilium/ebpf** (pure-Go eBPF loader/verifier): <https://github.com/cilium/ebpf>.
 - **eBPF docs**: <https://docs.ebpf.io/>.
 - **ioctl_ficlone(2)** (reflink CoW clones):

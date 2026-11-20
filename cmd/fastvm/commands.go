@@ -23,37 +23,34 @@ func newImageCmd() *cobra.Command {
 		Use:   "image",
 		Short: "Manage base images",
 	}
-	cmd.AddCommand(newImageBuildCmd(), newImageListCmd(), newImageRemoveCmd())
+	cmd.AddCommand(newImagePullCmd(), newImageListCmd(), newImageRemoveCmd())
 	return cmd
 }
 
-func newImageBuildCmd() *cobra.Command {
-	var dockerfile, tag string
+func newImagePullCmd() *cobra.Command {
 	var sizeGB int
 	cmd := &cobra.Command{
-		Use:   "build [context]",
-		Short: "Build a base disk from a Dockerfile",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if tag == "" {
-				return errors.New("--tag is required")
-			}
-			ctxDir := "."
-			if len(args) > 0 {
-				ctxDir = args[0]
-			}
-			var disk types.BaseDisk
-			if err := do(http.MethodPost, "/v1/images/build", map[string]any{
-				"dockerfile": dockerfile, "context": ctxDir, "tag": tag, "size_gb": sizeGB,
-			}, &disk); err != nil {
+		Use:   "pull <image>",
+		Short: "Pull an OCI image into the base-disk store",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			ref := args[0]
+			disk, err := pullImageWithProgress(ref, func() (types.BaseDisk, error) {
+				var pulled types.BaseDisk
+				if err := do(http.MethodPost, "/v1/images/pull", map[string]any{
+					"ref": ref, "size_gb": sizeGB,
+				}, &pulled); err != nil {
+					return types.BaseDisk{}, err
+				}
+				return pulled, nil
+			})
+			if err != nil {
 				return err
 			}
 			fmt.Printf("%s\t%s\t%d bytes\n", disk.Name, disk.Digest, disk.SizeBytes)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&dockerfile, "file", "f", "", "path to Dockerfile")
-	cmd.Flags().StringVarP(&tag, "tag", "t", "", "image tag")
 	cmd.Flags().IntVar(&sizeGB, "size-gb", 0, "base disk size in GiB")
 	return cmd
 }
@@ -363,7 +360,7 @@ merges per key and --volume wins for a matching guest path.`,
 	f := cmd.Flags()
 	f.StringVarP(&file, "file", "f", "", "load sandbox config from an .fvmfile")
 	f.StringVar(&fromSnapshot, "from-snapshot", "", "boot a new sandbox from a saved snapshot")
-	f.StringVar(&image, "image", "", "Docker image or base disk tag/digest")
+	f.StringVar(&image, "image", "", "OCI image or base disk tag/digest")
 	f.StringVar(&name, "name", "", "sandbox name or ID (boot it if no image/file is given)")
 	f.IntVar(&vcpus, "vcpus", 0, "vCPUs (0 = default)")
 	f.IntVar(&memory, "memory", 0, "memory MiB (0 = default)")

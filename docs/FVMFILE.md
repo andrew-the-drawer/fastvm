@@ -53,7 +53,7 @@ no_auto_sleep: true
 |---|---|
 | `version` | Optional; currently `1`. |
 | `name` | Sandbox name. Defaults to the filename without `.fvmfile`. |
-| `image` | Required Docker image or base disk reference; built on demand. |
+| `image` | Required OCI image or base disk reference; pulled on demand. |
 | `entrypoint` | Fixed guest argv, like Docker's `ENTRYPOINT`. |
 | `command` | Default arguments appended to `entrypoint`, like Docker's `CMD`. Without `entrypoint`, it is the full guest argv. |
 | `env` | Guest environment for the workload, user_data, exec, and shell sessions. `${NAME}` is expanded from the host environment; unset references are an error. |

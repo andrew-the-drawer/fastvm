@@ -20,7 +20,7 @@ cmd/fastvm/            CLI client
 cmd/fastvmd/           daemon
 cmd/fastvm-agent/      guest agent (static, injected into base disks)
 internal/api/          HTTP/JSON API
-internal/build, image/ Dockerfile → OCI → ext4 base disk
+internal/image/       OCI registry pull → rootfs → ext4 base disk
 internal/volume/       CoW runtime volumes
 internal/vmm/          VMM interface; cloudhypervisor/ driver
 internal/agent/        vsock wire protocol + host client

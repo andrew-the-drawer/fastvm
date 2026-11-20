@@ -26,8 +26,8 @@ The CLI is built on Cobra and styled by Fang. Use `fastvmctl --help`, command
 ## Commands
 
 ```sh
-# Build/run; the image is built into a base disk on demand from the Docker
-# image reference if it is not in the local image store.
+# Run; the OCI image is pulled into a base disk on demand if it is not in the
+# local image store.
 # Foreground (waits, prints the command output):
 fastvmctl run --net --image alpine -- uname -a
 # Detached (prints only the sandbox ID/state/name):
@@ -63,7 +63,7 @@ fastvmctl pause <ref> [--deep]
 fastvmctl resume <ref>
 fastvmctl rm <ref>...
 fastvmctl events [-n N]
-fastvmctl image <build|ls|rm>
+fastvmctl image <pull|ls|rm>
 fastvmctl version
 ```
 
@@ -107,7 +107,7 @@ Global socket selection: `--socket <path>` before the command, or
   networking) and a new hostname via the guest agent. The base image referenced
   by the snapshot must still exist in the image store. Multiple independent
   sandboxes can be restored from the same snapshot.
-- Images are cached by Docker reference; use `image ls` to inspect them.
+- Images are cached by OCI reference; use `image ls` to inspect them.
   Rebuild base images after changing the guest agent (snapshot restores use
   the agent's `network`/`hostname` ops for the new sandbox identity).
 - Build identity is included in `version`/`--version`

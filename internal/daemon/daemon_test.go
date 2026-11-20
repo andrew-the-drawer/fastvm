@@ -37,7 +37,7 @@ type fakeImages struct {
 	removed []string
 }
 
-func (f *fakeImages) Build(context.Context, image.BuildSpec) (types.BaseDisk, error) {
+func (f *fakeImages) Pull(context.Context, image.PullSpec) (types.BaseDisk, error) {
 	return f.disk, nil
 }
 func (f *fakeImages) Ingest(context.Context, image.IngestSpec) (types.BaseDisk, error) {

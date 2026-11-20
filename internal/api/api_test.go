@@ -76,14 +76,14 @@ func (f *fakeRT) Close() error                                       { return ni
 
 type fakeImg struct {
 	disks   []types.BaseDisk
-	built   manager.BuildOptions
+	pulled  manager.PullOptions
 	ingest  string
 	removed []string
 	err     error
 }
 
-func (f *fakeImg) BuildImage(_ context.Context, o manager.BuildOptions) (types.BaseDisk, error) {
-	f.built = o
+func (f *fakeImg) PullImage(_ context.Context, o manager.PullOptions) (types.BaseDisk, error) {
+	f.pulled = o
 	return f.disks[0], f.err
 }
 func (f *fakeImg) ListImages(context.Context) ([]types.BaseDisk, error) { return f.disks, f.err }
@@ -260,11 +260,11 @@ func TestSleepAndWake(t *testing.T) {
 
 func TestImages(t *testing.T) {
 	ts, _, imgs := server(t)
-	code, _ := call(t, ts, "POST", "/v1/images/build", map[string]any{
-		"dockerfile": "Dockerfile", "context": "/src", "tag": "app:1", "size_gb": 4,
+	code, _ := call(t, ts, "POST", "/v1/images/pull", map[string]any{
+		"ref": "app:1", "size_gb": 4,
 	})
-	if code != 201 || imgs.built.Tag != "app:1" || imgs.built.ContextDir != "/src" {
-		t.Fatalf("build code=%d opts=%+v", code, imgs.built)
+	if code != 201 || imgs.pulled.Ref != "app:1" || imgs.pulled.SizeGB != 4 {
+		t.Fatalf("pull code=%d opts=%+v", code, imgs.pulled)
 	}
 	code, _ = call(t, ts, "POST", "/v1/images/ingest", map[string]any{"rootfs_dir": "/rootfs", "tag": "raw:1"})
 	if code != 201 || imgs.ingest != "/rootfs|raw:1" {

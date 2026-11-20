@@ -1,7 +1,7 @@
 # fastvm — Getting Started
 
 A complete walkthrough: build the binaries, start the daemon with a ready-made
-config, build a base disk from a Dockerfile, boot a real microVM, exec into it,
+config, pull a base image, boot a real microVM, exec into it,
 pause it, spill guest RAM to disk, and wake it from a network request.
 
 Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](../README.md).
@@ -18,7 +18,6 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 | virtiofsd ≥ 1.10 | Serves host-directory volumes over virtio-fs. The distro package often ships `/usr/lib/virtiofsd` instead of putting `virtiofsd` on `PATH`; the daemon falls back to it. Only needed for `--volume` sandboxes. Override with `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. |
 | Go 1.24+ | Only to build from source. |
 | Kernel image | `make assets` downloads the pinned Cloud Hypervisor test kernel (`vmlinux-x86_64`, sha256 `edfeb8a8…a853`) into `test/e2e/assets/vmlinux.bin`; or point `kernel_path` at your own pinned kernel with virtio-pci/virtio-fs built in. |
-| Docker (optional) | Only for `fastvm image build` (Dockerfile → OCI → ext4). |
 | e2fsprogs (`mke2fs`), `nft` | Base disk creation and DNAT rules. |
 
 > The public sandbox this repo was developed in runs as an unprivileged user, so
@@ -133,47 +132,40 @@ subcommand.
 
 ---
 
-## 4. Build a base disk from a Dockerfile
+## 4. Pull a base image
 
-The repo ships an example Dockerfile at
-[hack/Dockerfile.example](../hack/Dockerfile.example). With the daemon running
-(see §3), build it into a bootable base disk with one command:
+With the daemon running (see §3), pull an OCI image and turn it into a bootable
+base disk:
 
 ```sh
-make image
-# demo:latest  sha256:<64-hex>  8589934592 bytes
+bin/fastvmctl image pull alpine:3.20
+# alpine:3.20  sha256:<64-hex>  8589934592 bytes
 
 bin/fastvmctl image ls
-# TAG          DIGEST        SIZE      SOURCE
-# (a disk whose tag moved to a newer build is shown as "-" and remains
-#  addressable by digest; tag -> digest comes from images/tags)
-# demo:latest  sha256:...    8192 MiB  dockerfile
+# TAG            DIGEST        SIZE      SOURCE
+# alpine:3.20    sha256:...    8192 MiB  registry
 ```
 
-`make image` runs `bin/fastvmctl --socket /run/fastvm/fastvm.sock image build -f
-hack/Dockerfile.example -t demo:latest hack` (override with
-`make image FASTVM_SOCKET=/path/to/fastvm.sock`). Use any Dockerfile/context
-directly the same way:
+`run --image` also pulls on demand when the image is not cached, so an explicit
+`image pull` is optional.
 
-```sh
-bin/fastvmctl image build -f /path/to/Dockerfile -t myapp:latest /path/to/context
-```
-
-How it works: `fastvm image build` runs `DOCKER_BUILDKIT=1 docker build` (unique temp
-tag), exports the container rootfs, injects the guest agent + init, and creates
-a **content-addressed ext4 base disk** in `$DATA_DIR/images/`. Identical inputs
-hit the cache; the base disk is read-only and shared by sandboxes.
+How it works: fastvm talks directly to the OCI registry (no Docker daemon or
+CLI), flattens the image layers into a rootfs, injects the guest agent + init,
+and creates a **content-addressed ext4 base disk** in `$DATA_DIR/images/`.
+Identical inputs hit the cache; the base disk is read-only and shared by
+sandboxes. Registry credentials are read from the Docker config keychain
+(`~/.docker/config.json`), so private registries work without the Docker daemon.
 
 Optional flag: `--size-gb N` (base disk size, default 8 GiB). Remove an image
 once no sandbox references it; `--force` overrides the reference check and
 deletes the disk plus every tag pointing at its digest:
 
 ```sh
-bin/fastvmctl image rm demo:latest
+bin/fastvmctl image rm alpine:3.20
 bin/fastvmctl image rm --force sha256:<hex>
 ```
 
-Without Docker you can import an unpacked rootfs through the API:
+For an offline rootfs, the ingest API is still available:
 
 ```sh
 curl --unix-socket /run/fastvm/fastvm.sock -X POST \
@@ -190,7 +182,7 @@ curl --unix-socket /run/fastvm/fastvm.sock -X POST \
 
 ```sh
 bin/fastvmctl run -d \
-  --image demo:latest \
+  --image alpine:3.20 \
   --name demo \
   --no-auto-sleep \
   -- /bin/sh -c 'while true; do sleep 5; done'
@@ -222,7 +214,7 @@ volumes:
 
 ```sh
 mkdir -p /tmp/fastvm-share && echo hello > /tmp/fastvm-share/host.txt
-bin/fastvmctl run -d --image demo:latest --name shared \
+bin/fastvmctl run -d --image alpine:3.20 --name shared \
   --volume /tmp/fastvm-share:/mnt/share:ro -- /bin/sleep 3600
 
 bin/fastvmctl exec shared -- cat /mnt/share/host.txt   # hello
@@ -248,7 +240,7 @@ bin/fastvmctl exec demo -- /bin/sh -c 'echo before-sleep > /tmp/demo.txt; cat /e
 ```sh
 bin/fastvmctl exec -it demo -- /bin/sh    # Docker-style interactive PTY; Ctrl-D exits
 bin/fastvmctl shell demo                  # shorthand for exec -it demo -- /bin/sh
-bin/fastvmctl exec -it demo -- /bin/bash  # or any other command
+bin/fastvmctl exec -it demo -- /bin/sh   # or any other command
 ```
 
 `exec -it` allocates a PTY in the guest, puts your terminal into raw mode,
@@ -334,8 +326,8 @@ Examples live next to the repo tooling:
 
 The file supports `image`, `command`, `env` (`${HOST_VAR}` expansion), host
 volumes, published ports, network/allowlist, vCPU/memory, and auto-sleep
-policy. The config image must be built separately if it is not a public
-Docker image. See [`.fvmfile` configs](FVMFILE.md) for the full field reference.
+policy. The config image must be pulled separately if it is not already in the
+daemon image store. See [`.fvmfile` configs](FVMFILE.md) for the full field reference.
 
 ---
 
@@ -350,7 +342,7 @@ With the daemon from §3 running, run a tiny HTTP server in the guest and publis
 it on host port 8080:
 
 ```sh
-bin/fastvmctl run -d --image demo:latest --name web --publish 8080:80 -- \
+bin/fastvmctl run -d --image alpine:3.20 --name web --publish 8080:80 -- \
   /bin/sh -c 'echo hello from a sleeping VM > /tmp/index.html;
               exec /bin/busybox httpd -f -p 0.0.0.0:80 -h /tmp'
 ```
@@ -394,7 +386,7 @@ systemd unit (or any service manager) as root.
 fastvmctl [--socket PATH] <command> [flags]
 
 version                                     daemon version
-image build [-f Dockerfile] [-t tag] [--size-gb N] [context]  base disk from Dockerfile
+image pull [--size-gb N] <tag|digest>          pull an OCI image into the base-disk store
 image ls                                    list cached base disks
 image rm [--force] <tag|digest>...          delete images and their tags
 run    --image <tag|digest> [flags] -- <cmd...>          create a sandbox
@@ -504,11 +496,10 @@ make test                                    # unit tests
 make test-race                               # race detector
 make e2e                                     # real-VM e2e (needs KVM + assets)
 FASTVM_NET_TESTS=1 go test ./internal/network/...   # TAP/bridge/nft tests
-FASTVM_DOCKER_TESTS=1 go test ./internal/image/...  # Dockerfile build test
 ```
 
 The privileged tests skip cleanly when their prerequisites are missing
-(`/dev/kvm`, KVM, Cloud Hypervisor, virtiofsd, docker, assets,
+(`/dev/kvm`, KVM, Cloud Hypervisor, virtiofsd, assets,
 `CAP_NET_ADMIN`/`CAP_BPF`). Cloud Hypervisor / virtiofsd paths for the tests can
 be overridden with `FASTVM_CLOUD_HYPERVISOR` / `FASTVM_VIRTIOFSD`.
 
@@ -523,7 +514,6 @@ How the e2e suites were verified in development:
 | Wake on network (real TAP) | `... -run TestDaemonNetworkWakeRealVM` | PASS ~1.8 s: boot with guest NIC, pause, TCP connect is queued and wakes the VM |
 | Daemon binary | `... -run TestDaemonBinarySmoke` | PASS ~3 s: fastvmd starts with the demo config, CLI version/image ls/ls, clean SIGTERM |
 | Driver-level checks | `go test ./internal/vmm/cloudhypervisor/` | unit: launch args (virtio-fs/net/vsock), CH API client, volume validation; real VM paths are covered by the lifecycle/CLI e2e rows above |
-| Docker build | `FASTVM_DOCKER_TESTS=1 go test ./internal/image/ -run TestBuildDocker` | PASS ~2.7 s: Dockerfile→rootfs→ext4, debugfs-verified contents |
 | Bridge/TAP/nft | `FASTVM_NET_TESTS=1 go test ./internal/network/...` | PASS ~0.9 s (isolated network namespace) |
 
 eBPF load/attach tests run only with `CAP_BPF`; without it the daemon logs the
@@ -543,8 +533,8 @@ fallback and uses the Linux bridge.
 | `volume N: host_path "..." is outside the allowed host prefixes` | Add the absolute host path prefix to `volumes.allowed_host_prefixes` in the daemon config (empty denies all host mounts), or drop the `--volume` flag. |
 | A dormant sandbox fails to restore after upgrading | The Cloud Hypervisor snapshot format is version-specific: restore with the same CH version (and CPU/disk/vsock paths). Delete the sandbox or re-create it after a VMM upgrade. |
 | Boot fails / sandbox goes `Failed` | Check `/dev/kvm` permissions, `kernel_path`, and the VMM stderr tail in the event plus `sandboxes/<id>/serial.log`. |
-| `image not found` on `run` | `fastvm image ls` to see tags; build or ingest first. |
-| `fastvm image build` fails with docker error | Docker daemon must be reachable (and have network for FROM/RUN). Use the ingest API for offline rootfs. |
+| `image not found` on `run` | `fastvm image ls` to see tags; pull or ingest first. |
+| `fastvm image pull` fails to reach a registry | Check network/DNS and registry credentials (`~/.docker/config.json`). Private registries use the same keychain; local HTTP registries are not enabled by default. |
 | `exec: "<tool>": executable file not found in $PATH` | Base disks built before the PATH fix contain an old agent/init. Rebuild the base image or call through a shell: `fastvm exec <vm> -- /bin/sh -c '<tool> --help'`. |
 | `fastvm shell`: `unknown op "shell"` | The image was built with an older guest agent. Rebuild the base disk and recreate the sandbox. |
 | A guest command (e.g. `claude --help`) hangs with no output | The image predates guest-entropy seeding: `getrandom()` blocks until the microVM CRNG initializes. Rebuild the base disk and recreate the sandbox. |

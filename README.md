@@ -17,7 +17,7 @@ virtio-fs.
 - **Disposable or persistent.** `run` builds, boots, runs, and removes on exit;
   `-d` keeps it, and `resume` boots/wakes it later.
 - **Self-managing.** Idle → pause → dormant RAM snapshot → wake on network.
-- **On-demand images.** First use of a Docker image builds and caches a bootable
+- **On-demand images.** First use of an OCI image pulls it and caches a bootable
   disk automatically.
 - **Network control.** `--net`/`--no-net`, plus `--allow-host` egress allowlists.
 - **First-boot setup.** Run a cloud-init-style `user_data` script before the sandbox command.
@@ -40,7 +40,7 @@ sudo make install
 sudo fastvmd --config hack/config.yaml
 
 # terminal 2
-# one-shot command: image built on demand, output printed, sandbox removed on exit
+# one-shot command: image pulled on demand, output printed, sandbox removed on exit
 fastvmctl run --image alpine -- uname -a
 
 # interactive shell: removed when you exit
@@ -108,8 +108,8 @@ Linux x86_64 with KVM, [Cloud Hypervisor](https://www.cloudhypervisor.org/)
 v54+ (`cloud-hypervisor`, or the static build `cloud-hypervisor-static`),
 virtiofsd ≥ 1.10 (only for host-directory volumes), and Go 1.24+ to build. The
 daemon needs root/`CAP_NET_ADMIN` for TAP/veth/nftables; `CAP_BPF` enables the
-eBPF switch, otherwise it falls back to the Linux bridge. Docker/BuildKit is
-optional and only used to build base images.
+eBPF switch, otherwise it falls back to the Linux bridge. Images are pulled
+directly from OCI registries; no Docker daemon or CLI is required.
 
 ## Documentation
 
@@ -133,7 +133,7 @@ make test-race # unit tests under the race detector
 make e2e       # real Cloud Hypervisor boot/pause/dormant/wake e2e
 ```
 
-Gated e2e, network, and Docker-build suites skip cleanly when their
+Gated e2e and network suites skip cleanly when their
 prerequisites are missing — see
 [docs/GETTING_STARTED.md § Testing](docs/GETTING_STARTED.md#10-testing) for the
 commands and the verified test matrix.

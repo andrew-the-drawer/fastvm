@@ -15,7 +15,7 @@ BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 INSTALL ?= install
 
-.PHONY: all build install test test-race vet fmt clean start image assets e2e netns-test docker-test bpf
+.PHONY: all build install test test-race vet fmt clean start assets e2e netns-test bpf
 
 all: fmt vet build test
 
@@ -62,12 +62,6 @@ start:
 FASTVM_SOCKET ?= /run/fastvm/fastvm.sock
 FASTVM ?= $(BIN)/fastvmctl
 
-# Build hack/Dockerfile.example into a bootable base disk via the running daemon.
-image:
-	@test -x $(BIN)/fastvmctl || { echo "missing $(BIN)/fastvmctl: run 'make build' first"; exit 1; }
-	@$(FASTVM) --socket $(FASTVM_SOCKET) version >/dev/null 2>&1 || { echo "fastvmd is not reachable at $(FASTVM_SOCKET); start it with: sudo make start (or pass FASTVM_SOCKET=/path/to/fastvm.sock)"; exit 1; }
-	$(FASTVM) --socket $(FASTVM_SOCKET) image build -f hack/Dockerfile.example -t demo:latest hack
-
 assets:
 	./test/e2e/fetch-assets.sh
 
@@ -80,9 +74,6 @@ e2e: assets
 
 netns-test:
 	FASTVM_NET_TESTS=1 $(GO) test -count=1 -timeout 5m ./internal/network/...
-
-docker-test:
-	FASTVM_DOCKER_TESTS=1 $(GO) test -count=1 -timeout 10m ./internal/image/...
 
 bpf:
 	$(MAKE) -C bpf

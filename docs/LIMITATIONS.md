@@ -62,11 +62,11 @@ browser GUI, …) are in [DESIGN.md §4](DESIGN.md#4-non-goals-through-v01).
   Dormant (best-effort, up to 2 min each) and the next start adopts them
   (network re-registered, memory file preserved, wake lazily). A crash or
   `kill -9` leaves no live VMM to adopt.
-- **Guest init** assumes a POSIX shell and busybox `mount`; images without them
-  need a custom `/init` via `init_path`.
-- **Image builds are not a container runtime.** fastvm uses BuildKit/Docker to
-  build base disks and converts the resulting OCI image; there is no
-  from-scratch Dockerfile engine, and sandboxes are microVMs, not containers.
+- **user_data** assumes a POSIX shell; hardened images without `/bin/sh` need a
+  custom `/init` or image that provides one.
+- **Images are registry pulls, not container builds.** fastvm pulls OCI images
+  directly from a registry and converts them into base disks; Dockerfile builds
+  are not supported, and sandboxes are microVMs, not containers.
 - **Not for hostile multi-tenancy yet.** Per-sandbox netns (M2) and VMM
   hardening (CH seccomp/Landlock, sandboxed virtiofsd, no jailer yet; M7) land
   later; mutually hostile tenants are a v1.0 concern.

@@ -24,7 +24,7 @@ func newRootCmd() *cobra.Command {
 		Short: "Micro-VM sandbox runtime",
 		Long: `fastvmctl controls fastvmd and its Cloud Hypervisor sandboxes.
 
-Create sandboxes from Docker images on demand, choose networking and egress
+Create sandboxes from OCI images on demand, choose networking and egress
 policy, attach a PTY, or snapshot a running sandbox and restore copies.
 
 Run without a command to see the full command reference.`,

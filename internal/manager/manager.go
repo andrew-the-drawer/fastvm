@@ -56,16 +56,14 @@ type Runtime interface {
 
 // Images is the image-management API.
 type Images interface {
-	BuildImage(ctx context.Context, spec BuildOptions) (types.BaseDisk, error)
+	PullImage(ctx context.Context, spec PullOptions) (types.BaseDisk, error)
 	ListImages(ctx context.Context) ([]types.BaseDisk, error)
 	IngestRootfs(ctx context.Context, rootfsDir, tag string) (types.BaseDisk, error)
 	RemoveImage(ctx context.Context, ref string, force bool) (types.BaseDisk, error)
 }
 
-// BuildOptions is a CLI-facing Dockerfile build request.
-type BuildOptions struct {
-	Dockerfile string
-	ContextDir string
-	Tag        string
-	SizeGB     int
+// PullOptions is a CLI-facing image pull request.
+type PullOptions struct {
+	Ref    string
+	SizeGB int
 }

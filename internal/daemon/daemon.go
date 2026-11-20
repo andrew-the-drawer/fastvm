@@ -813,17 +813,12 @@ func (d *Daemon) Close() error {
 
 // --- manager.Images --------------------------------------------------------
 
-func (d *Daemon) BuildImage(ctx context.Context, spec manager.BuildOptions) (types.BaseDisk, error) {
-	if spec.Tag == "" {
-		return types.BaseDisk{}, fmt.Errorf("%w: tag required", manager.ErrInvalid)
+func (d *Daemon) PullImage(ctx context.Context, spec manager.PullOptions) (types.BaseDisk, error) {
+	if strings.TrimSpace(spec.Ref) == "" {
+		return types.BaseDisk{}, fmt.Errorf("%w: image reference required", manager.ErrInvalid)
 	}
-	ctxDir := spec.ContextDir
-	if ctxDir == "" {
-		ctxDir = "."
-	}
-	return d.img.Build(ctx, image.BuildSpec{
-		Dockerfile: spec.Dockerfile, ContextDir: ctxDir, Tag: spec.Tag,
-		SizeGB: spec.SizeGB, KernelPath: d.cfg.KernelPath,
+	return d.img.Pull(ctx, image.PullSpec{
+		Ref: spec.Ref, SizeGB: spec.SizeGB,
 		AgentPath: d.cfg.AgentPath, InitPath: d.cfg.InitPath,
 	})
 }
