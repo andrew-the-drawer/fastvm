@@ -24,11 +24,11 @@ avatar (persisted per browser).
 
 Dark and light themes, side by side:
 
-![fastvm console in light and dark themes](../docs/CONSOLE_THEMES.png)
+![fastvm console in light and dark themes](../docs/assets/console-themes.png)
 
 Exec terminal:
 
-![fastvm console exec terminal](../docs/CONSOLE_TERMINAL.png)
+![fastvm console exec terminal](../docs/assets/console-terminal.png)
 
 ## Prerequisites
 
