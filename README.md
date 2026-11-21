@@ -125,6 +125,7 @@ directly from OCI registries; no Docker daemon or CLI is required.
 | [Snapshots](docs/SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |
 | [Sandbox lifecycle](docs/LIFECYCLE.md) | Running, idle, paused, dormant, wake, and auto-sleep |
 | [REST API](docs/API.md) | Unix socket and optional TCP REST transport with mTLS |
+| [Prometheus metrics](docs/METRICS.md) | Daemon and per-sandbox metrics, scrape config |
 | [Web console](console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy, production notes |
 | [Docs index](docs/README.md) | All documents and the repository layout |
 

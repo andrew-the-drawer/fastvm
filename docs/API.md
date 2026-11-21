@@ -116,6 +116,8 @@ Metrics include:
 - per-sandbox CPU, VMM RSS, network rx/tx
 - per-sandbox wake, sleep, and exec counts
 
+See [Prometheus metrics](METRICS.md) for the full metric list and scrape config.
+
 ## Security notes
 
 - No token or password auth; mTLS is the only TCP authentication.
