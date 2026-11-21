@@ -627,6 +627,7 @@ func (d *Daemon) Exec(ctx context.Context, ref string, argv []string, env map[st
 		return agent.Response{}, err
 	}
 	rt.execActive++
+	sb.ExecCount++
 	defer func() { rt.execActive-- }()
 	d.touchLocked(rt, sb)
 	env = mergeEnvMaps(rt.workloadEnv, env)
@@ -926,6 +927,7 @@ func (d *Daemon) pauseLocked(ctx context.Context, rt *runtime, sb *types.Sandbox
 		}
 	}
 	rt.pausedSince = d.now()
+	sb.SleepCount++
 	return d.setStateLocked(ctx, rt, sb, types.StatePaused, "paused: "+rt.idleReason)
 }
 

@@ -93,6 +93,8 @@ type Sandbox struct {
 	SnapshotDir      string    `json:"snapshot_dir,omitempty"`
 	GuestCID         uint32    `json:"guest_cid,omitempty"`
 	WakeCount        int       `json:"wake_count"`
+	SleepCount       int       `json:"sleep_count,omitempty"`
+	ExecCount        int       `json:"exec_count,omitempty"`
 	LastActivityAt   time.Time `json:"last_activity_at"`
 	WorkloadFinished bool      `json:"workload_finished,omitempty"`
 	Error            string    `json:"error,omitempty"`

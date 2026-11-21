@@ -46,15 +46,11 @@ Longer-term ideas and research items. Check items off as they land.
 
 ## Observability
 
-- [ ] **Prometheus metrics for the VM runtime**
-  - Expose a Prometheus text endpoint from `fastvmd`, for example `/metrics`.
-  - Serve it on the unix socket and optionally on the mTLS REST listener.
-  - Cover daemon and sandbox metrics: sandbox counts by state, CPU, memory RSS,
-    network rx/tx, wake/sleep counts, exec counts, image/volume cache size, and
-    error counters.
-  - Keep sandbox identity low-cardinality (ID/name), avoid secrets in labels,
-    and document scraping/auth.
-  - Add tests for metric names, labels, and state transitions.
+- [x] **Basic Prometheus metrics**
+  - `/metrics` on the unix socket and mTLS listener.
+  - Daemon sandbox counts by state and image/volume cache size.
+  - Per-sandbox CPU, VMM RSS, network rx/tx, wake/sleep/exec counts.
+  - Remaining: error counters, operation histograms, and dashboard/alerts.
 
 ## Storage
 

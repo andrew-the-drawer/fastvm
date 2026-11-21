@@ -1223,3 +1223,46 @@ func TestNoNetworkSleepDoesNotTouchNetwork(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 }
+
+func TestPrometheusMetrics(t *testing.T) {
+	h := newHarness(t)
+	h.imgs.disk.SizeBytes = 12345
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "metrics", Image: "img:test", MemoryMB: 1024,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := h.d.Exec(context.Background(), sb.ID, []string{"true"}, nil); err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if err := h.d.Sleep(context.Background(), sb.ID, false); err != nil {
+		t.Fatalf("sleep: %v", err)
+	}
+	if err := h.d.Wake(context.Background(), sb.ID); err != nil {
+		t.Fatalf("wake: %v", err)
+	}
+	data, err := h.d.PrometheusMetrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, want := range []string{
+		"fastvm_up 1",
+		`fastvm_sandboxes{state="Running"} 1`,
+		"fastvm_images 1",
+		"fastvm_image_cache_bytes 12345",
+		`fastvm_sandbox_info{sandbox_id="` + sb.ID + `"`,
+		`fastvm_sandbox_cpu_percent{sandbox_id="` + sb.ID + `"}`,
+		`fastvm_sandbox_memory_rss_bytes{sandbox_id="` + sb.ID + `"}`,
+		`fastvm_sandbox_network_rx_bytes_total{sandbox_id="` + sb.ID + `"}`,
+		`fastvm_sandbox_wakes_total{sandbox_id="` + sb.ID + `"} 1`,
+		`fastvm_sandbox_sleeps_total{sandbox_id="` + sb.ID + `"} 1`,
+		`fastvm_sandbox_execs_total{sandbox_id="` + sb.ID + `"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("metrics missing %q:\n%s", want, out)
+		}
+	}
+	_ = h.d.Delete(context.Background(), sb.ID)
+}

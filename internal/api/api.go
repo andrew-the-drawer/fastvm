@@ -46,7 +46,13 @@ func New(rt manager.Runtime, images manager.Images, log *slog.Logger) *Server {
 // Handler returns the HTTP handler (used by tests).
 func (s *Server) Handler() http.Handler { return s.mux }
 
+// MetricsProvider is implemented by daemons that expose Prometheus metrics.
+type MetricsProvider interface {
+	PrometheusMetrics(ctx context.Context) ([]byte, error)
+}
+
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 	s.mux.HandleFunc("GET /v1/version", s.handleVersion)
 	s.mux.HandleFunc("GET /v1/images", s.handleListImages)
 	s.mux.HandleFunc("POST /v1/images/pull", s.handlePullImage)
@@ -127,6 +133,21 @@ func dirOf(path string) string {
 		return path[:i]
 	}
 	return "."
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.rt.(MetricsProvider)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := p.PrometheusMetrics(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {

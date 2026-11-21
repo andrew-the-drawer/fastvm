@@ -98,6 +98,24 @@ key.pem     client private key
 
 An explicit `--socket` overrides `FASTVM_HOST` for local use.
 
+## Metrics
+
+`GET /metrics` exposes Prometheus text metrics over the same unix socket and
+optional mTLS listener:
+
+```sh
+curl --unix-socket /run/fastvm/fastvm.sock http://fastvm/metrics
+# or
+curl --cacert ... --cert ... --key ... https://127.0.0.1:8443/metrics
+```
+
+Metrics include:
+
+- daemon sandbox counts by state
+- image and writable-volume cache counts/bytes
+- per-sandbox CPU, VMM RSS, network rx/tx
+- per-sandbox wake, sleep, and exec counts
+
 ## Security notes
 
 - No token or password auth; mTLS is the only TCP authentication.
