@@ -44,6 +44,7 @@ type Config struct {
 	InitPath   string  `yaml:"init_path"`  // optional host path to init script injected into base disks
 	Switch     Switch  `yaml:"switch"`
 	Network    Network `yaml:"network"`
+	API        API     `yaml:"api"`
 
 	Lifecycle Lifecycle `yaml:"lifecycle"`
 	Idle      Idle      `yaml:"idle"`
@@ -84,6 +85,13 @@ type Memory struct {
 	OffloadMode string  `yaml:"offload_mode"` // file|uffd|swap|never
 	EvictAbove  float64 `yaml:"evict_above"`
 	ReserveMB   int     `yaml:"reserve_mb"`
+}
+
+// API configures the optional TCP REST transport. The unix socket is always
+// available; TCP requires mTLS.
+type API struct {
+	Host     string `yaml:"host"`      // host:port; empty disables TCP
+	CertPath string `yaml:"cert_path"` // dir with ca.pem, cert.pem, key.pem
 }
 
 // Wake configures wake-on-network policy.
@@ -242,6 +250,16 @@ func (c *Config) Validate() error {
 			errs = append(errs, "network.dns entries must be non-loopback IPv4 addresses")
 			break
 		}
+	}
+	if c.API.Host != "" {
+		if _, _, err := net.SplitHostPort(c.API.Host); err != nil {
+			errs = append(errs, "api.host must be host:port")
+		}
+		if strings.TrimSpace(c.API.CertPath) == "" {
+			errs = append(errs, "api.host requires api.cert_path")
+		}
+	} else if c.API.CertPath != "" {
+		errs = append(errs, "api.cert_path requires api.host")
 	}
 	for _, domain := range c.Network.Search {
 		if strings.TrimSpace(domain) == "" || strings.ContainsAny(domain, " \t#;") {

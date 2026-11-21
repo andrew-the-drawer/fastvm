@@ -15,7 +15,7 @@ BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 INSTALL ?= install
 
-.PHONY: all build install test test-race vet fmt clean start assets e2e netns-test bpf
+.PHONY: all build install test test-race vet fmt clean start assets e2e netns-test bpf certs
 
 all: fmt vet build test
 
@@ -64,6 +64,57 @@ FASTVM ?= $(BIN)/fastvmctl
 
 assets:
 	./test/e2e/fetch-assets.sh
+
+# Local mTLS certificates for the optional TCP API and fastvmctl.
+# Output:
+#   $(CERTS_DIR)/server/{ca.pem,cert.pem,key.pem}  fastvmd api.cert_path
+#   $(CERTS_DIR)/client/{ca.pem,cert.pem,key.pem}  FASTVM_CERT_PATH
+CERTS_DIR ?= /tmp/fastvm/certs
+
+certs:
+	@command -v openssl >/dev/null || { echo "openssl is required"; exit 1; }
+	@mkdir -p "$(CERTS_DIR)/server" "$(CERTS_DIR)/client"
+	@chmod 700 "$(CERTS_DIR)" "$(CERTS_DIR)/server" "$(CERTS_DIR)/client"
+	@rm -f "$(CERTS_DIR)"/ca.key "$(CERTS_DIR)"/ca.pem "$(CERTS_DIR)"/ca.srl \
+		"$(CERTS_DIR)"/server/* "$(CERTS_DIR)"/client/*
+	@openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+		-keyout "$(CERTS_DIR)/ca.key" -out "$(CERTS_DIR)/ca.pem" \
+		-subj "/CN=fastvm-ca"
+	@cp "$(CERTS_DIR)/ca.pem" "$(CERTS_DIR)/server/ca.pem"
+	@cp "$(CERTS_DIR)/ca.pem" "$(CERTS_DIR)/client/ca.pem"
+	@openssl req -newkey rsa:2048 -nodes \
+		-keyout "$(CERTS_DIR)/server/key.pem" -out "$(CERTS_DIR)/server/server.csr" \
+		-subj "/CN=fastvm-api"
+	@printf '%s\n' \
+		'basicConstraints=CA:FALSE' \
+		'keyUsage=digitalSignature,keyEncipherment' \
+		'extendedKeyUsage=serverAuth' \
+		'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+		> "$(CERTS_DIR)/server/server.ext"
+	@openssl x509 -req -in "$(CERTS_DIR)/server/server.csr" \
+		-CA "$(CERTS_DIR)/ca.pem" -CAkey "$(CERTS_DIR)/ca.key" -CAcreateserial \
+		-out "$(CERTS_DIR)/server/cert.pem" -days 825 -sha256 \
+		-extfile "$(CERTS_DIR)/server/server.ext"
+	@openssl req -newkey rsa:2048 -nodes \
+		-keyout "$(CERTS_DIR)/client/key.pem" -out "$(CERTS_DIR)/client/client.csr" \
+		-subj "/CN=fastvm-client"
+	@printf '%s\n' \
+		'basicConstraints=CA:FALSE' \
+		'keyUsage=digitalSignature' \
+		'extendedKeyUsage=clientAuth' \
+		> "$(CERTS_DIR)/client/client.ext"
+	@openssl x509 -req -in "$(CERTS_DIR)/client/client.csr" \
+		-CA "$(CERTS_DIR)/ca.pem" -CAkey "$(CERTS_DIR)/ca.key" -CAcreateserial \
+		-out "$(CERTS_DIR)/client/cert.pem" -days 825 -sha256 \
+		-extfile "$(CERTS_DIR)/client/client.ext"
+	@rm -f "$(CERTS_DIR)/server/server.csr" "$(CERTS_DIR)/server/server.ext" \
+		"$(CERTS_DIR)/client/client.csr" "$(CERTS_DIR)/client/client.ext"
+	@chmod 600 "$(CERTS_DIR)/ca.key" "$(CERTS_DIR)/server/key.pem" "$(CERTS_DIR)/client/key.pem"
+	@chmod 644 "$(CERTS_DIR)/ca.pem" "$(CERTS_DIR)/server/ca.pem" "$(CERTS_DIR)/server/cert.pem" \
+		"$(CERTS_DIR)/client/ca.pem" "$(CERTS_DIR)/client/cert.pem"
+	@echo "server certs: $(CERTS_DIR)/server"
+	@echo "client certs: $(CERTS_DIR)/client"
+
 
 # Real-VM end-to-end suite. Requires KVM, Cloud Hypervisor v54+ (or
 # cloud-hypervisor-static) and the assets from `make assets`; virtiofsd is

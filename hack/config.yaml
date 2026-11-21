@@ -84,6 +84,15 @@ switch:
   isolate_sandboxes: true
   wake_notify: true
 
+# Optional REST JSON API over TCP. The unix socket is always available; TCP is
+# mTLS-only and disabled when host is empty. cert_path must contain:
+#   ca.pem    CA used to verify client certificates
+#   cert.pem  server certificate
+#   key.pem   server private key
+api:
+  host: 127.0.0.1:8443
+  cert_path: /tmp/fastvm/certs/server
+
 network:
   # Empty dns/search mirrors the host's /etc/resolv.conf (loopback resolvers
   # are filtered, with public fallback), like Docker. Override to pin resolvers.

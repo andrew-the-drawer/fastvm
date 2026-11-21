@@ -11,6 +11,7 @@
 | [Auto-publishing ports](AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on loopback |
 | [Snapshots](SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |
 | [Sandbox lifecycle](LIFECYCLE.md) | Running, idle, paused, dormant, wake, and auto-sleep |
+| [REST API](API.md) | Unix socket and optional TCP REST transport with mTLS |
 | [CoW volumes](SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification, snapshot/CoW checks |
 | [Web console](../console/README.md) | OIDC login, sandbox dashboard, live utilization, exec terminal, dev proxy |
 

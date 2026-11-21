@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,18 +70,18 @@ func runShell(ref string, argv []string, extraEnv map[string]string) error {
 	if err != nil {
 		return err
 	}
-	conn, err := net.Dial("unix", socketPath())
+	conn, err := dialAPI(context.Background())
 	if err != nil {
 		return fmt.Errorf("shell: connect daemon: %w", err)
 	}
 	defer conn.Close()
 
 	fmt.Fprintf(conn, "POST /v1/sandboxes/%s/shell HTTP/1.1\r\n"+
-		"Host: fastvm\r\n"+
+		"Host: %s\r\n"+
 		"Connection: Upgrade\r\n"+
 		"Upgrade: fastvm-shell\r\n"+
 		"Content-Type: application/json\r\n"+
-		"Content-Length: %d\r\n\r\n", url.PathEscape(ref), len(payload))
+		"Content-Length: %d\r\n\r\n", url.PathEscape(ref), apiHost(), len(payload))
 	if _, err := conn.Write(payload); err != nil {
 		return fmt.Errorf("shell: send request: %w", err)
 	}

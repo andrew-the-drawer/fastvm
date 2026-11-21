@@ -206,8 +206,20 @@ func runDaemon(ctx context.Context, opts daemonOptions) error {
 	srv := api.New(d, d, log)
 	log.Info("fastvmd started", "socket", cfg.SocketPath, "data_dir", cfg.DataDir,
 		"switch", netOpts.SwitchMode, "offload", cfg.Memory.OffloadMode)
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() { errCh <- srv.Serve(ctx, cfg.SocketPath) }()
+	if cfg.API.Host != "" {
+		tlsConfig, err := api.LoadTLSConfig(
+			filepath.Join(cfg.API.CertPath, "cert.pem"),
+			filepath.Join(cfg.API.CertPath, "key.pem"),
+			filepath.Join(cfg.API.CertPath, "ca.pem"),
+		)
+		if err != nil {
+			return err
+		}
+		log.Info("REST API listening with mTLS", "addr", cfg.API.Host, "cert_path", cfg.API.CertPath)
+		go func() { errCh <- srv.ServeTLS(ctx, cfg.API.Host, tlsConfig) }()
+	}
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, context.Canceled) {

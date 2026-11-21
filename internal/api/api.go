@@ -1,8 +1,10 @@
-// Package api exposes the fastvm HTTP/JSON API over a unix socket.
+// Package api exposes the fastvm REST/JSON API. The default transport is a unix
+// socket; an optional TCP listener requires mutual TLS.
 package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -66,6 +68,31 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/snapshot/copy", s.handleSnapshotCopy)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/wake", s.handleWake)
 	s.mux.HandleFunc("GET /v1/events", s.handleEvents)
+}
+
+// ServeTLS listens on a TCP address using the supplied mTLS config and serves
+// until ctx is cancelled.
+func (s *Server) ServeTLS(ctx context.Context, addr string, tlsConfig *tls.Config) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen tcp %s: %w", addr, err)
+	}
+	tlsLn := tls.NewListener(ln, tlsConfig)
+	srv := &http.Server{
+		Handler:           s.mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	if err := srv.Serve(tlsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // Serve listens on a unix socket and serves until ctx is cancelled.

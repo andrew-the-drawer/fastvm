@@ -80,14 +80,16 @@ func TestLoadMissingFile(t *testing.T) {
 
 func TestValidateRejectsBadValues(t *testing.T) {
 	cases := map[string]func(*Config){
-		"negative duration":    func(c *Config) { c.Lifecycle.IdleWindow = Duration(-time.Second) },
-		"wake below threshold": func(c *Config) { c.Idle.CPUWakePct = 0.5 },
-		"bad offload mode":     func(c *Config) { c.Memory.OffloadMode = "magic" },
-		"bad cow":              func(c *Config) { c.Volume.COW = "magic" },
-		"bad switch":           func(c *Config) { c.Switch.Mode = "magic" },
-		"bad exit policy":      func(c *Config) { c.Lifecycle.OnWorkloadExit = "explode" },
-		"no data dir":          func(c *Config) { c.DataDir = "" },
-		"tiny defaults":        func(c *Config) { c.Defaults.VCPUs = 0 },
+		"negative duration":     func(c *Config) { c.Lifecycle.IdleWindow = Duration(-time.Second) },
+		"wake below threshold":  func(c *Config) { c.Idle.CPUWakePct = 0.5 },
+		"bad offload mode":      func(c *Config) { c.Memory.OffloadMode = "magic" },
+		"bad cow":               func(c *Config) { c.Volume.COW = "magic" },
+		"bad switch":            func(c *Config) { c.Switch.Mode = "magic" },
+		"bad exit policy":       func(c *Config) { c.Lifecycle.OnWorkloadExit = "explode" },
+		"no data dir":           func(c *Config) { c.DataDir = "" },
+		"tiny defaults":         func(c *Config) { c.Defaults.VCPUs = 0 },
+		"api without cert path": func(c *Config) { c.API.Host = "127.0.0.1:8443" },
+		"cert path without api": func(c *Config) { c.API.CertPath = "/tmp/certs" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
