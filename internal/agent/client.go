@@ -422,6 +422,39 @@ func (cl *client) Ports(ctx context.Context) ([]int, error) {
 	return resp.Ports, nil
 }
 
+func (cl *client) FileStat(ctx context.Context, path string) (int64, uint32, error) {
+	resp, err := cl.request(ctx, Request{Op: OpFileStat, Path: path})
+	if err != nil {
+		return 0, 0, err
+	}
+	if resp.Error != "" {
+		return 0, 0, fmt.Errorf("agent: file stat: %s", resp.Error)
+	}
+	return resp.FileSize, resp.FileMode, nil
+}
+
+func (cl *client) FileRead(ctx context.Context, path string, offset int64, maxBytes int) ([]byte, int64, uint32, error) {
+	resp, err := cl.request(ctx, Request{Op: OpFileRead, Path: path, Offset: offset, MaxBytes: maxBytes})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if resp.Error != "" {
+		return nil, 0, 0, fmt.Errorf("agent: file read: %s", resp.Error)
+	}
+	return resp.Data, resp.FileSize, resp.FileMode, nil
+}
+
+func (cl *client) FileWrite(ctx context.Context, path string, offset int64, mode uint32, data []byte) error {
+	resp, err := cl.request(ctx, Request{Op: OpFileWrite, Path: path, Offset: offset, Mode: mode, Data: data})
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("agent: file write: %s", resp.Error)
+	}
+	return nil
+}
+
 // SetNetwork reconfigures the guest NIC after a snapshot restore. address is
 // CIDR (e.g. "10.77.0.6/30"); gateway may be empty.
 func (cl *client) SetNetwork(ctx context.Context, address, gateway string) error {

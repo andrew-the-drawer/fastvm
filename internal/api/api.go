@@ -51,6 +51,13 @@ type MetricsProvider interface {
 	PrometheusMetrics(ctx context.Context) ([]byte, error)
 }
 
+// FileCopier is implemented by daemons that support guest file transfer.
+type FileCopier interface {
+	CopyToGuest(ctx context.Context, ref, path string, mode os.FileMode, r io.Reader) error
+	CopyFromGuest(ctx context.Context, ref, path string, w io.Writer) (os.FileMode, int64, error)
+	StatGuest(ctx context.Context, ref, path string) (os.FileMode, int64, error)
+}
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
 	s.mux.HandleFunc("GET /v1/version", s.handleVersion)
@@ -62,6 +69,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sandboxes", s.handleCreate)
 	s.mux.HandleFunc("GET /v1/sandboxes/{ref}", s.handleGet)
 	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/stats", s.handleStats)
+	s.mux.HandleFunc("PUT /v1/sandboxes/{ref}/file", s.handleCopyTo)
+	s.mux.HandleFunc("GET /v1/sandboxes/{ref}/file", s.handleCopyFrom)
 	s.mux.HandleFunc("DELETE /v1/sandboxes/{ref}", s.handleDelete)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/exec", s.handleExec)
 	s.mux.HandleFunc("POST /v1/sandboxes/{ref}/shell", s.handleShell)
@@ -133,6 +142,57 @@ func dirOf(path string) string {
 		return path[:i]
 	}
 	return "."
+}
+
+func (s *Server) handleCopyTo(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.rt.(FileCopier)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path query parameter is required"})
+		return
+	}
+	mode := os.FileMode(0o644)
+	if raw := r.URL.Query().Get("mode"); raw != "" {
+		v, err := strconv.ParseUint(raw, 8, 32)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "mode must be an octal file mode"})
+			return
+		}
+		mode = os.FileMode(v)
+	}
+	if err := c.CopyToGuest(r.Context(), r.PathValue("ref"), path, mode, r.Body); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCopyFrom(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.rt.(FileCopier)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path query parameter is required"})
+		return
+	}
+	mode, size, err := c.StatGuest(r.Context(), r.PathValue("ref"), path)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("X-Fastvm-Mode", strconv.FormatUint(uint64(mode.Perm()), 8))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	if _, _, err := c.CopyFromGuest(r.Context(), r.PathValue("ref"), path, w); err != nil {
+		// The response has already started; log-only is the best we can do here.
+		s.log.Warn("copy from guest failed", "sandbox", r.PathValue("ref"), "path", path, "err", err)
+	}
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {

@@ -1,131 +1,15 @@
 # fastvmctl CLI
 
-`fastvmctl` is the redesigned CLI for fastvm. It uses
-[Fang](https://github.com/charmbracelet/fang) + Cobra, so `--help`, `--version`,
-shell completion, and command/flag errors are styled consistently.
+The command reference now lives in [cli/README.md](cli/README.md), with one
+manpage-style page per command:
 
-Status: **implemented** — on-demand images, network toggle/allowlist,
-interactive run, unified run/resume lifecycle, snapshots, and independent
-snapshot copies.
+- [fastvmctl](cli/fastvmctl.md)
+- [run](cli/fastvmctl_run.md), [exec](cli/fastvmctl_exec.md), [shell](cli/fastvmctl_shell.md)
+- [ps](cli/fastvmctl_ps.md), [get](cli/fastvmctl_get.md), [cp](cli/fastvmctl_cp.md)
+- [pause](cli/fastvmctl_pause.md), [resume](cli/fastvmctl_resume.md), [rm](cli/fastvmctl_rm.md)
+- [snapshot](cli/fastvmctl_snapshot.md), [events](cli/fastvmctl_events.md)
+- [image](cli/fastvmctl_image.md), [version](cli/fastvmctl_version.md)
+- [completion](cli/fastvmctl_completion.md)
 
-Some limitations are called out below (allowlist requires the bridge data
-plane; snapshots do not include host volume mounts yet).
-
-## Conventions
-
-The CLI is built on Cobra and styled by Fang. Use `fastvmctl --help`, command
-`--help`, and `fastvmctl completion <shell>` for discovery/completion.
-
-- The daemon socket is the global `--socket` flag (or `FASTVM_SOCKET`); the old
-  single-dash `-socket` form is gone.
-- Interactive commands use `-i/--interactive` and `-t/--tty`; the combined
-  `-it` shorthand still works.
-- Guest commands should follow `--`, e.g. `exec <sandbox> -- uname -a`.
-- `-v/--version` is provided by Fang; `version` reports both CLI and daemon.
-
-## Commands
-
-```sh
-# Run; the OCI image is pulled into a base disk on demand if it is not in the
-# local image store.
-# Foreground (waits, prints the command output):
-fastvmctl run --net --image alpine -- uname -a
-# Detached (prints only the sandbox ID/state/name):
-fastvmctl run -d --net --image alpine -- uname -a
-fastvmctl run --net -it --image alpine -- /bin/sh
-
-# Egress allowlist: only the named hosts (plus DNS and established traffic)
-# can be reached. --allow-host implies --net. Requires bridge switch mode.
-fastvmctl run --allow-host registry.npmjs.org --image alpine -- wget -qO- https://google.com
-
-# Declarative sandbox config
-fastvmctl run -f hack/codex.fvmfile -it
-
-# Lifecycle: --no-start creates without booting; resume boots/wakes it.
-fastvmctl run --net --name agent --image alpine --no-start
-fastvmctl resume --name agent
-
-# Or create+boot in one step
-fastvmctl run --net --name agent --image alpine
-
-# Snapshots: save the running state and restore copies.
-snapshot=$(fastvmctl snapshot agent --name before-upgrade)   # explicit name
-fastvmctl snapshot ls                           # list saved snapshots
-fastvmctl run --from-snapshot "$snapshot" --name agent2
-fastvmctl snapshot rm "$snapshot"          # delete when no longer needed
-
-# Existing commands
-fastvmctl ps
-fastvmctl get <ref>
-fastvmctl exec [-it] <ref> -- <cmd>...
-fastvmctl shell <ref>
-fastvmctl pause <ref> [--deep]
-fastvmctl resume <ref>
-fastvmctl rm <ref>...
-fastvmctl events [-n N]
-fastvmctl image <pull|push|ls|rm>
-fastvmctl version
-```
-
-Use `.fvmfile` configs (`fastvmctl run -f <file>`) for reusable coding-agent
-sandboxes; examples live in `hack/*.fvmfile`.
-
-Global socket selection: `--socket <path>` before the command, or
-`FASTVM_SOCKET`; default `/run/fastvm/fastvm.sock`.
-
-## Semantics
-
-- **Network is off by default** for `run`. `--net` allocates a TAP and
-  guest IP; `--no-net` states that explicitly. Without networking the guest has
-  no NIC.
-- `--allow-host` switches the sandbox to allowlist mode: hostnames are resolved
-  to IPv4 at create time, DNS and established traffic are allowed, other egress
-  is rejected (TCP gets an immediate RST, so blocked wget/curl fail fast). The allowlist is enforced by nftables on the bridge data plane;
-  eBPF switch mode rejects allowlisted sandboxes until a tc/BPF filter exists.
-  DNS rebinding/CDN IP changes are not tracked yet.
-- `-it` attaches the CLI to a PTY for the given command (default `/bin/sh`).
-- `run` creates and boots a sandbox by default. With a command it runs in the
-  foreground, writes the command's stdout/stderr, and **removes the sandbox when
-  it exits**. `-it` does the same for an interactive shell. `-d/--detach` starts
-  the command as the detached workload and keeps the sandbox; it prints the
-  sandbox ID/state/name. A `run` without a command leaves the sandbox running
-  and prints the sandbox ID/state/name.
-- `run --no-start` creates without booting. Use `resume` to boot it later.
-  `run --name <ref>` boots/wakes an existing sandbox.
-- `resume` makes an existing sandbox active: `Created` -> boot, `Paused` ->
-  wake, `Dormant` -> restore.
-- `save <sandbox>` writes `snapshot.json`, `snapshot/` (CH config, memory,
-  CPU state) and `disk.img` under `<data_dir>/snapshots/<generated-name>`,
-  then prints the generated name. Running sandboxes are paused only for the
-  snapshot and resumed afterwards. Keeping snapshots in the data directory
-  lets the disk be reflinked on CoW filesystems. Host volume mounts are not
-  captured yet.
-- `snapshots` lists saved snapshots; `snapshots rm NAME...` deletes one
-  or more snapshot directories.
-- `run --from-snapshot NAME --name REF` restores the snapshot and boots it
-  running; the restored sandbox gets a new TAP/IP (when the snapshot had
-  networking) and a new hostname via the guest agent. The base image referenced
-  by the snapshot must still exist in the image store. Multiple independent
-  sandboxes can be restored from the same snapshot.
-- Images are cached by OCI reference; compressed layers are cached by digest
-  under `<data_dir>/images/blobs` and shared across image pulls; deleting one
-  blob only forces that blob to be downloaded again. A source index under
-  `<data_dir>/images/sources` lets repeated pulls skip rootfs extraction when
-  the image, agent/init, format, and size are unchanged. Use `image ls` to
-  inspect base disks.
-  Rebuild base images after changing the guest agent (snapshot restores use
-  the agent's `network`/`hostname` ops for the new sandbox identity).
-- Build identity is included in `version`/`--version`
-  (`<tag|commit>[-dirty]`).
-
-## Limitations / follow-ups
-
-- Snapshots with host volume mounts are rejected.
-- Allowlists are bridge-only (eBPF mode returns a clear error).
-- Hostname/IP reconfiguration needs a guest agent built with the `network` and
-  `hostname` ops; rebuild images after upgrading the agent.
-- Snapshot names are resolved under `<data_dir>/snapshots`; absolute paths
-  and path traversal are rejected. `save` takes the source sandbox as a
-  positional argument; `run --from-snapshot` takes a snapshot name.
-- `run --from-snapshot` starts the restored VM immediately (no stopped/paused
-  restore state yet).
+See [cli/README.md](cli/README.md) for the full index, global options, and
+environment variables.

@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -238,15 +240,19 @@ func (d *fakeDriver) lastRestore() (vmm.RestoreConfig, bool) {
 }
 
 type fakeAgent struct {
-	mu      sync.Mutex
-	ready   bool
-	envs    []map[string]string
-	ports   []int
-	execs   []agent.Request
-	events  chan agent.Event
-	closed  bool
-	stdout  string
-	exitErr error
+	mu        sync.Mutex
+	ready     bool
+	envs      []map[string]string
+	ports     []int
+	memAvail  uint64
+	memTotal  uint64
+	files     map[string][]byte
+	fileModes map[string]uint32
+	execs     []agent.Request
+	events    chan agent.Event
+	closed    bool
+	stdout    string
+	exitErr   error
 }
 
 func newFakeAgent() *fakeAgent {
@@ -261,6 +267,51 @@ func (a *fakeAgent) Exec(_ context.Context, req agent.Request) (agent.Response, 
 		return agent.Response{}, a.exitErr
 	}
 	return agent.Response{ID: req.ID, Stdout: a.stdout}, nil
+}
+func (a *fakeAgent) FileStat(_ context.Context, path string) (int64, uint32, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	data, ok := a.files[path]
+	if !ok {
+		return 0, 0, os.ErrNotExist
+	}
+	return int64(len(data)), a.fileModes[path], nil
+}
+func (a *fakeAgent) FileRead(_ context.Context, path string, offset int64, max int) ([]byte, int64, uint32, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	data, ok := a.files[path]
+	if !ok {
+		return nil, 0, 0, os.ErrNotExist
+	}
+	if offset >= int64(len(data)) {
+		return nil, int64(len(data)), a.fileModes[path], nil
+	}
+	end := offset + int64(max)
+	if end > int64(len(data)) {
+		end = int64(len(data))
+	}
+	return append([]byte(nil), data[offset:end]...), int64(len(data)), a.fileModes[path], nil
+}
+func (a *fakeAgent) FileWrite(_ context.Context, path string, offset int64, mode uint32, data []byte) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.files == nil {
+		a.files = make(map[string][]byte)
+		a.fileModes = make(map[string]uint32)
+	}
+	if offset == 0 {
+		a.files[path] = append([]byte(nil), data...)
+	} else {
+		cur := a.files[path]
+		if int64(len(cur)) < offset {
+			cur = append(cur, make([]byte, offset-int64(len(cur)))...)
+		}
+		cur = append(cur[:offset], data...)
+		a.files[path] = cur
+	}
+	a.fileModes[path] = mode
+	return nil
 }
 func (a *fakeAgent) Ports(context.Context) ([]int, error) {
 	a.mu.Lock()
@@ -1263,6 +1314,27 @@ func TestPrometheusMetrics(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("metrics missing %q:\n%s", want, out)
 		}
+	}
+	_ = h.d.Delete(context.Background(), sb.ID)
+}
+
+func TestCopyGuestFile(t *testing.T) {
+	h := newHarness(t)
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{Name: "copy", Image: "img:test"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	payload := bytes.Repeat([]byte("copy-data-"), 1000)
+	if err := h.d.CopyToGuest(context.Background(), sb.ID, "dir/file.txt", 0o640, bytes.NewReader(payload)); err != nil {
+		t.Fatalf("copy to guest: %v", err)
+	}
+	var out bytes.Buffer
+	mode, size, err := h.d.CopyFromGuest(context.Background(), sb.ID, "dir/file.txt", &out)
+	if err != nil {
+		t.Fatalf("copy from guest: %v", err)
+	}
+	if !bytes.Equal(out.Bytes(), payload) || size != int64(len(payload)) || mode.Perm() != 0o640 {
+		t.Fatalf("copied data mismatch: size=%d mode=%o", size, mode)
 	}
 	_ = h.d.Delete(context.Background(), sb.ID)
 }

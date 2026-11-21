@@ -119,7 +119,7 @@ directly from OCI registries; no Docker daemon or CLI is required.
 | [Design](docs/DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, roadmap |
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |
 | [Cloud Hypervisor migration](docs/CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor, kernel/tooling, virtio-fs volumes |
-| [fastvmctl CLI](docs/FASTVMCTL.md) | Command surface, lifecycle semantics, networking/allowlists, snapshots |
+| [fastvmctl CLI](docs/cli/README.md) | Manpage-style reference for every command |
 | [`.fvmfile` configs](docs/FVMFILE.md) | Declarative sandbox configs for coding agents and reproducible runs |
 | [Auto-publishing ports](docs/AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on 127.0.0.1 |
 | [Snapshots](docs/SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |

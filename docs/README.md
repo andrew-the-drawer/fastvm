@@ -6,7 +6,7 @@
 | [Getting started](GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Limitations](LIMITATIONS.md) | What v0.1 does not do yet, and intentional non-goals |
 | [Cloud Hypervisor migration](CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor: kernel, tooling, virtio-fs host volumes, verified spike |
-| [fastvmctl CLI](FASTVMCTL.md) | New CLI surface: on-demand images, network modes, run/resume lifecycle, snapshots |
+| [fastvmctl CLI](cli/README.md) | Manpage-style reference for every command |
 | [`.fvmfile` configs](FVMFILE.md) | Declarative sandbox configs and examples |
 | [Auto-publishing ports](AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on loopback |
 | [Snapshots](SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |

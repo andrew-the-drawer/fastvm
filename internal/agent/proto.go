@@ -22,6 +22,9 @@ const (
 	OpTouch     = "touch"
 	OpBusy      = "busy"
 	OpPorts     = "ports"
+	OpFileStat  = "file_stat"
+	OpFileRead  = "file_read"
+	OpFileWrite = "file_write"
 	OpWorkload  = "workload" // guest -> host event
 	OpHeartbeat = "heartbeat"
 )
@@ -58,6 +61,12 @@ type Request struct {
 	Network *NetworkConfig `json:"network,omitempty"`
 	// Hostname renames the guest after a snapshot restore.
 	Hostname string `json:"hostname,omitempty"`
+	// File transfer fields (OpFileStat/OpFileRead/OpFileWrite).
+	Path     string `json:"path,omitempty"`
+	Offset   int64  `json:"offset,omitempty"`
+	Mode     uint32 `json:"mode,omitempty"`
+	Data     []byte `json:"data,omitempty"`
+	MaxBytes int    `json:"max_bytes,omitempty"`
 }
 
 // NetworkConfig is the post-restore guest NIC configuration.
@@ -73,6 +82,9 @@ type Response struct {
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
 	Ports    []int  `json:"ports,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+	FileMode uint32 `json:"file_mode,omitempty"`
+	Data     []byte `json:"data,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -93,6 +105,12 @@ type Client interface {
 	SetEnv(ctx context.Context, env map[string]string) error
 	// Ports lists non-loopback TCP listening ports in the guest.
 	Ports(ctx context.Context) ([]int, error)
+	// FileStat returns the size and mode of a guest file.
+	FileStat(ctx context.Context, path string) (size int64, mode uint32, err error)
+	// FileRead reads up to maxBytes from a guest file at offset.
+	FileRead(ctx context.Context, path string, offset int64, maxBytes int) (data []byte, size int64, mode uint32, err error)
+	// FileWrite writes data at offset, creating parent directories on first write.
+	FileWrite(ctx context.Context, path string, offset int64, mode uint32, data []byte) error
 	// SetNetwork reconfigures the guest NIC after a snapshot restore.
 	SetNetwork(ctx context.Context, address, gateway string) error
 	// SetHostname renames the guest after a snapshot restore.

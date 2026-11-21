@@ -44,6 +44,7 @@ Environment:
 		newSnapshotCmd(),
 		newListCmd(),
 		newGetCmd(),
+		newCpCmd(),
 		newExecCmd(),
 		newShellCmd(),
 		newPauseCmd(),

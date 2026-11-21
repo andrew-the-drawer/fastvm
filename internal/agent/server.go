@@ -219,6 +219,27 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 		s.broadcast(Event{Type: EventWorkloadBusy, Message: fmt.Sprintf("busy=%t", req.Busy)})
 	case OpHeartbeat, OpReady:
 		// No-op acknowledgement.
+	case OpFileStat:
+		size, mode, err := fileStat(req.Path)
+		if err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		} else {
+			resp.FileSize, resp.FileMode = size, mode
+		}
+	case OpFileRead:
+		data, size, mode, err := fileRead(req.Path, req.Offset, req.MaxBytes)
+		if err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		} else {
+			resp.Data, resp.FileSize, resp.FileMode = data, size, mode
+		}
+	case OpFileWrite:
+		if err := fileWrite(req.Path, req.Offset, req.Mode, req.Data); err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		}
 	default:
 		resp.ExitCode = -1
 		resp.Error = fmt.Sprintf("unknown op %q", req.Op)
