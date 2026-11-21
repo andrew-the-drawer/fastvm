@@ -906,17 +906,22 @@ func (d *Daemon) pauseLocked(ctx context.Context, rt *runtime, sb *types.Sandbox
 		}
 	}
 	// Arm wake notifications before halting vCPUs so no frame is missed.
-	if err := d.net.SetAsleep(ctx, sb.ID, true); err != nil {
-		d.log.Warn("set asleep failed", "sandbox", sb.ID, "err", err)
-	}
-	if d.sw != nil {
-		if err := d.sw.SetAsleep(ctx, sb.ID, true); err != nil {
-			d.log.Warn("switch set asleep failed", "sandbox", sb.ID, "err", err)
+	// Sandboxes without networking have no TAP/switch port to arm.
+	if sb.NetworkEnabled {
+		if err := d.net.SetAsleep(ctx, sb.ID, true); err != nil {
+			d.log.Warn("set asleep failed", "sandbox", sb.ID, "err", err)
+		}
+		if d.sw != nil {
+			if err := d.sw.SetAsleep(ctx, sb.ID, true); err != nil {
+				d.log.Warn("switch set asleep failed", "sandbox", sb.ID, "err", err)
+			}
 		}
 	}
 	if rt.vm != nil {
 		if err := rt.vm.Pause(ctx); err != nil {
-			_ = d.net.SetAsleep(ctx, sb.ID, false)
+			if sb.NetworkEnabled {
+				_ = d.net.SetAsleep(ctx, sb.ID, false)
+			}
 			return fmt.Errorf("pause: %w", err)
 		}
 	}
@@ -990,12 +995,14 @@ func (d *Daemon) wakeLocked(ctx context.Context, rt *runtime, sb *types.Sandbox)
 	default:
 		return fmt.Errorf("%w: cannot wake %s", manager.ErrConflict, sb.State)
 	}
-	if err := d.net.SetAsleep(ctx, sb.ID, false); err != nil {
-		d.log.Warn("clear asleep failed", "sandbox", sb.ID, "err", err)
-	}
-	if d.sw != nil {
-		if err := d.sw.SetAsleep(ctx, sb.ID, false); err != nil {
-			d.log.Warn("switch clear asleep failed", "sandbox", sb.ID, "err", err)
+	if sb.NetworkEnabled {
+		if err := d.net.SetAsleep(ctx, sb.ID, false); err != nil {
+			d.log.Warn("clear asleep failed", "sandbox", sb.ID, "err", err)
+		}
+		if d.sw != nil {
+			if err := d.sw.SetAsleep(ctx, sb.ID, false); err != nil {
+				d.log.Warn("switch clear asleep failed", "sandbox", sb.ID, "err", err)
+			}
 		}
 	}
 	now := d.now()

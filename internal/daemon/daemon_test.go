@@ -1197,3 +1197,29 @@ func TestAutoPublishLoopStartsForAdoptedRuntime(t *testing.T) {
 	}
 	t.Fatal("adopted runtime did not start auto-publish discovery")
 }
+
+func TestNoNetworkSleepDoesNotTouchNetwork(t *testing.T) {
+	h := newHarness(t)
+	netEnabled := false
+	sb, err := h.d.Create(context.Background(), manager.CreateOptions{
+		Name: "no-net", Image: "img:test", NetworkEnabled: &netEnabled,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := h.d.Sleep(context.Background(), sb.ID, false); err != nil {
+		t.Fatalf("sleep: %v", err)
+	}
+	if err := h.d.Wake(context.Background(), sb.ID); err != nil {
+		t.Fatalf("wake: %v", err)
+	}
+	h.net.mu.Lock()
+	_, touched := h.net.asleep[sb.ID]
+	h.net.mu.Unlock()
+	if touched {
+		t.Fatal("network-disabled sandbox must not call SetAsleep")
+	}
+	if err := h.d.Delete(context.Background(), sb.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+}

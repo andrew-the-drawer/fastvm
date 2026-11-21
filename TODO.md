@@ -44,6 +44,54 @@ Longer-term ideas and research items. Check items off as they land.
     volumes or keep rejecting them with a clear error.
   - Add tests for restored ports, auto-publish, and network configuration.
 
+## Observability
+
+- [ ] **Prometheus metrics for the VM runtime**
+  - Expose a Prometheus text endpoint from `fastvmd`, for example `/metrics`.
+  - Serve it on the unix socket and optionally on the mTLS REST listener.
+  - Cover daemon and sandbox metrics: sandbox counts by state, CPU, memory RSS,
+    network rx/tx, wake/sleep counts, exec counts, image/volume cache size, and
+    error counters.
+  - Keep sandbox identity low-cardinality (ID/name), avoid secrets in labels,
+    and document scraping/auth.
+  - Add tests for metric names, labels, and state transitions.
+
+## Storage
+
+- [ ] **Explore device-mapper thin provisioning for layered CoW**
+  - Use a dm-thin pool for image -> kernel/updates -> resized writable overlay
+    layering instead of one reflink clone per sandbox.
+  - Evaluate thin snapshots for the base image and per-sandbox writable layer,
+    online resize, discard/TRIM, and discard-on-destroy.
+  - Cover pool sizing/overcommit, leak detection, recovery after daemon restart,
+    and cleanup of orphaned thin volumes.
+  - Compare with the current reflink/copy backends and decide whether to
+    implement `volume.cow: dm-thin`.
+  - Add integration tests on a disposable thin pool; skip cleanly without
+    device-mapper privileges.
+
+## Dynamic images / Nix
+
+- [ ] **Let users request runtimes instead of full images**
+  - Example: `fastvmctl run --with node,go …` resolves to a bootable sandbox
+    containing those runtimes without rebuilding an ext4 image for every
+    combination.
+  - Explore Nix flakes/profiles to produce a reproducible closure for the
+    requested packages.
+  - Avoid image assembly on every run:
+    - keep a minimal base rootfs and mount a shared read-only Nix store via
+      virtio-fs
+    - or add the Nix closure as a read-only lower layer and use a writable
+      overlay/CoW layer per sandbox
+  - Cache closures by content hash and share them across sandboxes; add GC.
+  - Keep the guest agent, init, kernel, and base OCI/rootfs model compatible.
+  - Define how snapshots, persistent writes, package installs, and `user_data`
+    interact with a shared read-only Nix store.
+  - Evaluate trust: pinned expressions, binary caches, and whether builds happen
+    on the host, in a builder VM, or never in the guest.
+  - Compare with the existing OCI layer cache and decide whether this is a
+    separate image source or a layer on top of OCI base images.
+
 ## Declarative sandbox config
 
 - [x] **Per-sandbox config file (e.g. `codex.fvmfile`)**
