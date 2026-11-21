@@ -9,7 +9,13 @@ themselves when a packet arrives — with the frame already queued in the guest'
 own virtio-net path. Host directories can be shared into a sandbox over
 virtio-fs.
 
-![fastvm console in light and dark themes](docs/assets/console-themes.png)
+> [!WARNING]
+> **fastvm is under active development.** There is no stable release yet.
+> APIs, CLI flags, config formats, storage layouts, and snapshot compatibility
+> may change without notice. It is **not ready for production use** — run it
+> only in disposable development or testing environments.
+
+![fastvm console](docs/assets/console.png)
 
 ## Features
 
