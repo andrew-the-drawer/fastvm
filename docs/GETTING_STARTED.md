@@ -12,12 +12,12 @@ Design and roadmap: [DESIGN.md](DESIGN.md). CLI/API/limits summary: [README.md](
 
 | Requirement | Notes |
 |---|---|
-| Linux x86_64 + KVM | `/dev/kvm` must be accessible. |
+| Linux x86_64 or arm64 + KVM | `/dev/kvm` must be accessible. On a Mac, use the Lima VM described in [MACOS.md](MACOS.md). |
 | **root / `CAP_NET_ADMIN`** | The daemon creates TAP devices, a Linux bridge, and nftables rules. Run `fastvmd` as root (or grant it `CAP_NET_ADMIN`). Required for booting sandboxes and for `--publish` ports. |
 | Cloud Hypervisor v54+ | `cloud-hypervisor`, or the static build `cloud-hypervisor-static` (this host: `/usr/bin/cloud-hypervisor-static`, v54.0). Check with `cloud-hypervisor --version` / `cloud-hypervisor-static --version`. The daemon searches `cloud-hypervisor` then `cloud-hypervisor-static` on `PATH`; override with `vmm.binary` (absolute path) or `FASTVM_CLOUD_HYPERVISOR`. |
-| virtiofsd ≥ 1.10 | Serves host-directory volumes over virtio-fs. The distro package often ships `/usr/lib/virtiofsd` instead of putting `virtiofsd` on `PATH`; the daemon falls back to it. Only needed for `--volume` sandboxes. Override with `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. |
+| virtiofsd ≥ 1.10 (≥ 1.13 for `:ro`) | Serves host-directory volumes over virtio-fs. Read-only volumes pass `--readonly`, which virtiofsd only has from 1.13.0 (Ubuntu 24.04 ships 1.10.0). The distro package often ships `/usr/lib/virtiofsd` instead of putting `virtiofsd` on `PATH`; the daemon falls back to it. Only needed for `--volume` sandboxes. Override with `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. |
 | Go 1.24+ | Only to build from source. |
-| Kernel image | `make assets` downloads the pinned Cloud Hypervisor test kernel (`vmlinux-x86_64`, sha256 `edfeb8a8…a853`) into `test/e2e/assets/vmlinux.bin`; or point `kernel_path` at your own pinned kernel with virtio-pci/virtio-fs built in. |
+| Kernel image | `make assets` downloads the pinned Cloud Hypervisor test kernel for the host arch (`vmlinux-x86_64`, sha256 `edfeb8a8…a853`; or `Image-arm64`, sha256 `8f8f3d5a…6cb2`, also via `FASTVM_ARCH=arm64`) into `test/e2e/assets/vmlinux.bin`; or point `kernel_path` at your own pinned kernel with virtio-pci/virtio-fs built in. |
 | e2fsprogs (`mke2fs`), `nft` | Base disk creation and DNAT rules. |
 
 > The public sandbox this repo was developed in runs as an unprivileged user, so
@@ -522,11 +522,14 @@ How the e2e suites were verified in development:
 | Unit | `go test ./...` | green |
 | Race | `go test -race ./...` | green |
 | Real VM lifecycle | `FASTVM_E2E=1 go test ./test/e2e/ -run TestDaemonLifecycleRealVM` | PASS ~1.7 s: boot→agent→exec→pause→dormant snapshot/restore→wake→exec→delete |
-| CLI/API over unix socket | `... -run TestCLIOverUnixSocket` | PASS ~2.1 s: run→ls→exec→deep sleep→wake→events→rm |
+| CLI/API over unix socket | `... -run TestCLIOverUnixSocket` | PASS ~2.1 s: run→ps→exec→deep sleep→wake→events→rm |
 | Wake on network (real TAP) | `... -run TestDaemonNetworkWakeRealVM` | PASS ~1.8 s: boot with guest NIC, pause, TCP connect is queued and wakes the VM |
-| Daemon binary | `... -run TestDaemonBinarySmoke` | PASS ~3 s: fastvmd starts with the demo config, CLI version/image ls/ls, clean SIGTERM |
+| Daemon binary | `... -run TestDaemonBinarySmoke` | PASS ~3 s: fastvmd starts with the demo config, CLI version/image ls/ps, clean SIGTERM |
 | Driver-level checks | `go test ./internal/vmm/cloudhypervisor/` | unit: launch args (virtio-fs/net/vsock), CH API client, volume validation; real VM paths are covered by the lifecycle/CLI e2e rows above |
 | Bridge/TAP/nft | `FASTVM_NET_TESTS=1 go test ./internal/network/...` | PASS ~0.9 s (isolated network namespace) |
+
+On macOS, `make mac-e2e` runs the same real-VM suite inside the Lima VM
+(arm64 guest, nested KVM); see [MACOS.md](MACOS.md).
 
 eBPF load/attach tests run only with `CAP_BPF`; without it the daemon logs the
 fallback and uses the Linux bridge.
@@ -541,6 +544,7 @@ fallback and uses the Linux bridge.
 | `permission denied` on the socket | The daemon created it as root with mode 0600; run the CLI as root too (same root shell) or run the daemon as the user that will use it. |
 | `operation not permitted` creating TAP/bridge/nft | The daemon needs `CAP_NET_ADMIN`: run `fastvmd` as root. |
 | `cloud-hypervisor: executable file not found in $PATH` | Install Cloud Hypervisor v54+ (or `cloud-hypervisor-static`) and make sure it is on the daemon's `PATH`, or set `vmm.binary` / `FASTVM_CLOUD_HYPERVISOR` to its absolute path. |
+| `virtiofsd … exited before its socket was ready` on a `:ro` volume | virtiofsd is older than 1.13 and lacks `--readonly`; upgrade it. |
 | `virtiofsd: executable file not found` | Install virtiofsd ≥ 1.10 (the distro package usually installs `/usr/lib/virtiofsd`; the daemon falls back to it) or set `vmm.virtiofsd` / `FASTVM_VIRTIOFSD`. Only needed for host-directory volumes. |
 | `volume N: host_path "..." is outside the allowed host prefixes` | Add the absolute host path prefix to `volumes.allowed_host_prefixes` in the daemon config (empty denies all host mounts), or drop the `--volume` flag. |
 | A dormant sandbox fails to restore after upgrading | The Cloud Hypervisor snapshot format is version-specific: restore with the same CH version (and CPU/disk/vsock paths). Delete the sandbox or re-create it after a VMM upgrade. |

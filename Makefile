@@ -15,7 +15,8 @@ BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 INSTALL ?= install
 
-.PHONY: all build install test test-race vet fmt clean start assets e2e netns-test bpf certs
+.PHONY: all build build-cli install test test-race vet fmt clean start assets e2e netns-test bpf certs \
+	mac-build mac-up mac-start mac-stop mac-delete mac-shell mac-env mac-e2e
 
 all: fmt vet build test
 
@@ -24,6 +25,12 @@ build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmctl ./cmd/fastvm
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmd ./cmd/fastvmd
 	CGO_ENABLED=0 $(GO) build -o $(BIN)/fastvm-agent ./cmd/fastvm-agent
+
+# Just the CLI. Unlike `build`, this also works on macOS, where fastvmctl
+# drives a daemon in a Lima VM (docs/MACOS.md).
+build-cli:
+	mkdir -p $(BIN)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/fastvmctl ./cmd/fastvm
 
 # Print the version the next build would embed.
 version:
@@ -128,3 +135,13 @@ netns-test:
 
 bpf:
 	$(MAKE) -C bpf
+
+# macOS: fastvmd runs inside a Lima VM with nested virtualization (Apple
+# Silicon M3+, macOS 15+); the native fastvmctl talks to it over mTLS. See
+# docs/MACOS.md. mac-build is linux/arm64 daemon+agent plus the native CLI.
+mac-build:
+	GOOS=linux GOARCH=arm64 $(MAKE) build BIN=$(BIN)/linux-arm64
+	$(MAKE) build-cli
+
+mac-up mac-start mac-stop mac-delete mac-shell mac-env mac-e2e:
+	@hack/lima/fastvm-lima.sh $(@:mac-%=%)

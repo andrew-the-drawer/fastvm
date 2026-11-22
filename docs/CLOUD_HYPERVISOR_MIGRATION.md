@@ -48,7 +48,7 @@ Kernel cmdline stays close to the Firecracker one
 ## Host requirements
 
 - Cloud Hypervisor v54.x (`cloud-hypervisor`), KVM.
-- `virtiofsd` ≥ 1.10 (the distro package ships `/usr/lib/virtiofsd`; make it
+- `virtiofsd` ≥ 1.10, or ≥ 1.13 for read-only volumes (`--readonly`) (the distro package ships `/usr/lib/virtiofsd`; make it
   available as `virtiofsd` on `PATH` or set `vmm.virtiofsd`).
 - Root/`CAP_NET_ADMIN` for TAP/nftables, as before.
 

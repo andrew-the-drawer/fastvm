@@ -2,6 +2,33 @@
 
 Longer-term ideas and research items. Check items off as they land.
 
+## Platforms
+
+- [x] **macOS, phase 1: fastvmd in a Lima VM with nested virtualization**
+  - `make mac-up` / `hack/lima/fastvm-lima.sh`; native `fastvmctl` over mTLS.
+  - Apple Silicon M3+ and macOS 15+ only; arm64 guests; `make mac-e2e` passes.
+  - Remaining: published ports need `fastvm-lima.sh forward` (nft DNAT is
+    invisible to Lima's forwarder); writable home volumes need an extra mount.
+
+- [ ] **macOS, phase 2: native Virtualization.framework backend** ([docs/MACOS.md](docs/MACOS.md#phase-2-native-virtualizationframework-backend-planned))
+  - Spike first, in a `fastvm-vz` per-sandbox helper (cgo `Code-Hex/vz` or
+    Swift, codesigned with `com.apple.security.virtualization`):
+    - Does `saveMachineStateTo` work with virtio-fs, vsock and file-handle NICs
+      attached?
+    - Can one saved state restore into several independent clones?
+    - Dormant → running latency (VZ restores memory eagerly, with no demand
+      paging) and cold boot time against the 0.6 s target.
+  - `internal/vmm/vz` driver behind `vmm.Driver`; helper exposes a control socket
+    and bridges VZ vsock to the existing `CONNECT <port>` agent protocol.
+  - Userspace networking: socketpair NICs (`VZFileHandleNetworkDeviceAttachment`),
+    L2 switch + wake-on-packet in fastvmd, NAT/DNS/`--allow-host`/`--publish`
+    via a userspace stack (e.g. gvisor-tap-vsock).
+  - CoW disks with APFS `clonefile(2)` (`volume.cow: clonefile`).
+  - Build-tag split of the Linux-only packages (network, switch, volume clone,
+    jailer, TAP handling in the daemon); `vmm.backend` config selection.
+  - Per-VM idle metrics (CPU/RSS/IO) from the helper process and switch counters.
+  - Decide the isolation story without the Linux jailer.
+
 ## Hardware & display
 
 - [ ] **GPU passthrough**

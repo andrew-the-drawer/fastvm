@@ -20,7 +20,13 @@ import (
 // being dropped by the interactive -it path. It runs the real run command
 // against a fake daemon and inspects the shell request.
 func TestRunFVMFileInteractivePassesEnv(t *testing.T) {
-	dir := t.TempDir()
+	t.Setenv("TERM", "xterm-256color") // forwarded to the guest; unset in CI/non-TTY shells
+	// Short dir: macOS caps unix socket paths at 104 bytes and $TMPDIR is long.
+	dir, err := os.MkdirTemp("", "fvm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "fastvm.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {

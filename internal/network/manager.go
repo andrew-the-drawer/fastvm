@@ -138,6 +138,12 @@ func (m *manager) Create(ctx context.Context, req CreateRequest) (Port, error) {
 		m.alloc.release(alloc.sandboxID)
 		return Port{}, err
 	}
+	// Like the eBPF backend: without this, egress only works on hosts where
+	// something else (e.g. Docker) already enabled forwarding.
+	if err := ensureIPForward(); err != nil {
+		m.alloc.release(alloc.sandboxID)
+		return Port{}, err
+	}
 	if err := createPersistentTAP(alloc.tap); err != nil {
 		m.alloc.release(alloc.sandboxID)
 		return Port{}, err

@@ -44,7 +44,6 @@ const (
 
 	defaultVCPUs    = 2
 	defaultMemoryMB = 512
-	defaultCmdline  = "console=ttyS0 root=/dev/vda rw init=/init"
 )
 
 // Options configures a Driver.
@@ -207,7 +206,7 @@ func memoryParam(memMB int, withVolumes bool) string {
 func bootArgs(cfg vmm.BootConfig, paths vmPaths, fsSocks []string) []string {
 	cmdline := cfg.Cmdline
 	if cmdline == "" {
-		cmdline = defaultCmdline
+		cmdline = vmm.BaseCmdline()
 	}
 	args := []string{
 		"--api-socket", paths.apiSock,
