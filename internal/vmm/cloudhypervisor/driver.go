@@ -65,6 +65,9 @@ type Options struct {
 	RequestTimeout time.Duration
 	// StopTimeout overrides DefaultStopTimeout.
 	StopTimeout time.Duration
+	// Jail, when non-nil, runs every VMM as an unprivileged per-sandbox user
+	// in its own cgroup with Landlock (see jail.go). virtiofsd is not jailed.
+	Jail *JailOptions
 }
 
 // Driver launches and controls Cloud Hypervisor VMM processes.
@@ -75,6 +78,7 @@ type Driver struct {
 	bootTimeout    time.Duration
 	requestTimeout time.Duration
 	stopTimeout    time.Duration
+	jail           *jail // nil when the jail is disabled
 }
 
 // NewDriver resolves the Cloud Hypervisor executable and applies defaults.
@@ -105,6 +109,11 @@ func NewDriver(opts Options) (*Driver, error) {
 	}
 	if d.stopTimeout <= 0 {
 		d.stopTimeout = DefaultStopTimeout
+	}
+	if opts.Jail != nil {
+		if d.jail, err = newJail(*opts.Jail); err != nil {
+			return nil, err
+		}
 	}
 	return d, nil
 }
@@ -249,17 +258,41 @@ func (d *Driver) Boot(ctx context.Context, cfg vmm.BootConfig) (vmm.VM, error) {
 	if err != nil {
 		return nil, err
 	}
-	fss, socks, err := d.startFSBackends(paths, cfg.Volumes)
+	var jl *jailLaunch
+	if d.jail != nil {
+		if err := d.checkJailPaths(paths, cfg.VsockUDPath); err != nil {
+			return nil, err
+		}
+		jl, err = d.jail.prepare(jailSpec{
+			SandboxID: cfg.SandboxID, Home: jailHome(paths),
+			OwnPaths: []string{cfg.DiskPath}, KernelPath: cfg.KernelPath,
+			MemoryBytes: d.jail.memoryMaxBytes(cfg.MemoryMB), TAPName: cfg.TAPName,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	fss, socks, err := d.startFSBackends(paths, cfg.Volumes, jl)
 	if err != nil {
+		d.abortJail(jl)
 		return nil, err
 	}
 	if err := prepareSockets(paths.apiSock, cfg.VsockUDPath); err != nil {
 		stopFSBackends(fss)
+		d.abortJail(jl)
 		return nil, err
 	}
-	proc, err := startProcess(d.binary, bootArgs(cfg, paths, socks), paths.vmmLog)
+	args := bootArgs(cfg, paths, socks)
+	var hooks []func(*exec.Cmd)
+	if jl != nil {
+		args = jailBootArgs(args, jailHome(paths))
+		hooks = append(hooks, jl.apply)
+	}
+	proc, err := startProcess(d.binary, args, paths.vmmLog, hooks...)
+	jl.closeParentFDs()
 	if err != nil {
 		stopFSBackends(fss)
+		d.abortJail(jl)
 		return nil, err
 	}
 	v := &vm{
@@ -268,6 +301,7 @@ func (d *Driver) Boot(ctx context.Context, cfg vmm.BootConfig) (vmm.VM, error) {
 		paths:  paths,
 		api:    newAPIClient(paths.apiSock, d.requestTimeout),
 		fss:    fss,
+		jailed: jl,
 	}
 	if err := d.waitForAPI(ctx, v.proc, v.api); err != nil {
 		return nil, v.fail(err)
@@ -290,21 +324,62 @@ func (d *Driver) Restore(ctx context.Context, cfg vmm.RestoreConfig) (vmm.VM, er
 	if err != nil {
 		return nil, err
 	}
-	fss, _, err := d.startFSBackends(paths, cfg.Volumes)
+	source := "source_url=file://" + cfg.Snapshot.Dir
+	var jl *jailLaunch
+	if d.jail != nil {
+		if err := d.checkJailPaths(paths, cfg.VsockUDPath); err != nil {
+			return nil, err
+		}
+		home := jailHome(paths)
+		info, err := patchSnapshotForJail(cfg.Snapshot.Dir, home)
+		if err != nil {
+			return nil, err
+		}
+		if len(info.NetIDs) > 0 && cfg.TAPName == "" {
+			return nil, errors.New("cloudhypervisor: jail: snapshot has a NIC but RestoreConfig.TAPName is empty")
+		}
+		if source, err = jailRestoreSource(cfg.Snapshot.Dir, info.NetIDs); err != nil {
+			return nil, err
+		}
+		own := info.DiskPaths
+		if !within(home, cfg.Snapshot.Dir) {
+			own = append(own, cfg.Snapshot.Dir)
+		}
+		tap := ""
+		if len(info.NetIDs) > 0 {
+			tap = cfg.TAPName
+		}
+		jl, err = d.jail.prepare(jailSpec{
+			SandboxID: cfg.SandboxID, Home: home, OwnPaths: own,
+			MemoryBytes: d.jail.memoryMaxBytes(int(info.MemoryBytes >> 20)), TAPName: tap,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	fss, _, err := d.startFSBackends(paths, cfg.Volumes, jl)
 	if err != nil {
+		d.abortJail(jl)
 		return nil, err
 	}
 	if err := prepareSockets(paths.apiSock, cfg.VsockUDPath); err != nil {
 		stopFSBackends(fss)
+		d.abortJail(jl)
 		return nil, err
 	}
 	args := []string{
 		"--api-socket", paths.apiSock,
-		"--restore", "source_url=file://" + cfg.Snapshot.Dir,
+		"--restore", source,
 	}
-	proc, err := startProcess(d.binary, args, paths.vmmLog)
+	var hooks []func(*exec.Cmd)
+	if jl != nil {
+		hooks = append(hooks, jl.apply)
+	}
+	proc, err := startProcess(d.binary, args, paths.vmmLog, hooks...)
+	jl.closeParentFDs()
 	if err != nil {
 		stopFSBackends(fss)
+		d.abortJail(jl)
 		return nil, err
 	}
 	v := &vm{
@@ -314,6 +389,7 @@ func (d *Driver) Restore(ctx context.Context, cfg vmm.RestoreConfig) (vmm.VM, er
 		api:    newAPIClient(paths.apiSock, d.requestTimeout),
 		fss:    fss,
 		paused: !cfg.Resume,
+		jailed: jl,
 	}
 	if err := d.waitForAPI(ctx, v.proc, v.api); err != nil {
 		return nil, v.fail(err)
@@ -380,7 +456,7 @@ type fsBackend struct {
 }
 
 // startFSBackends starts one virtiofsd per volume and waits for its socket.
-func (d *Driver) startFSBackends(paths vmPaths, vols []types.Volume) ([]*fsBackend, []string, error) {
+func (d *Driver) startFSBackends(paths vmPaths, vols []types.Volume, jl *jailLaunch) ([]*fsBackend, []string, error) {
 	if len(vols) == 0 {
 		return nil, nil, nil
 	}
@@ -422,6 +498,12 @@ func (d *Driver) startFSBackends(paths vmPaths, vols []types.Volume) ([]*fsBacke
 		if err := waitForSocket(sock, proc, fsConnectTimeout); err != nil {
 			return fail(fmt.Errorf("cloudhypervisor: virtiofsd %s: %w", vol.HostPath, err))
 		}
+		if jl != nil {
+			// virtiofsd runs as root; the jailed VMM must be able to connect.
+			if err := os.Lchown(sock, int(jl.uid), int(jl.gid)); err != nil {
+				return fail(fmt.Errorf("cloudhypervisor: jail: chown virtiofsd socket: %w", err))
+			}
+		}
 	}
 	return backends, socks, nil
 }
@@ -458,6 +540,7 @@ type vm struct {
 	api    *apiClient
 	fss    []*fsBackend
 	paused bool
+	jailed *jailLaunch // nil when not jailed
 
 	mu      sync.Mutex
 	stopped bool
@@ -495,6 +578,12 @@ func (v *vm) Snapshot(ctx context.Context, dir string) (vmm.Snapshot, error) {
 			}
 		}
 	}
+	if v.jailed != nil {
+		if err := v.jailedSnapshot(ctx, dir); err != nil {
+			return vmm.Snapshot{}, err
+		}
+		return vmm.Snapshot{Dir: dir}, nil
+	}
 	if err := v.api.snapshot(ctx, dir); err != nil {
 		return vmm.Snapshot{}, fmt.Errorf("cloudhypervisor: snapshot: %w", err)
 	}
@@ -518,6 +607,7 @@ func (v *vm) Stop(ctx context.Context) error {
 	err := v.proc.stop(ctx, v.driver.stopTimeout)
 	stopFSBackends(v.fss)
 	v.api.close()
+	v.driver.abortJail(v.jailed)
 	return err
 }
 
@@ -539,6 +629,7 @@ func (v *vm) fail(err error) error {
 	_ = v.proc.stop(stopCtx, v.driver.stopTimeout)
 	stopFSBackends(v.fss)
 	v.api.close()
+	v.driver.abortJail(v.jailed)
 	if tail := logTail(v.paths.vmmLog, 4096); tail != "" {
 		return fmt.Errorf("%w\n--- VMM log tail (%s) ---\n%s", err, v.paths.vmmLog, tail)
 	}

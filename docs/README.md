@@ -5,6 +5,7 @@
 | [Design](DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, milestones |
 | [Getting started](GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Limitations](LIMITATIONS.md) | What v0.1 does not do yet, and intentional non-goals |
+| [VMM jail](VMM_JAIL.md) | Experimental: run each cloud-hypervisor as an unprivileged per-sandbox user in its own cgroup, with Landlock |
 | [Cloud Hypervisor migration](CLOUD_HYPERVISOR_MIGRATION.md) | Why the VMM moved from Firecracker to Cloud Hypervisor: kernel, tooling, virtio-fs host volumes, verified spike |
 | [fastvmctl CLI](cli/README.md) | Manpage-style reference for every command |
 | [`.fvmfile` configs](FVMFILE.md) | Declarative sandbox configs and examples |

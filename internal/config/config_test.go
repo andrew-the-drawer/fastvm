@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,5 +138,23 @@ func TestValidateRejectsBadNetwork(t *testing.T) {
 	cfg.Network = Network{DNS: []string{"1.1.1.1"}, Search: []string{"example.com"}}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("valid network config rejected: %v", err)
+	}
+}
+
+func TestJailConfigValidation(t *testing.T) {
+	c := Default()
+	c.VMM.Jail.Enabled = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("default jail config should validate: %v", err)
+	}
+	c.VMM.Jail.CgroupRoot = "/tmp/fastvm"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "cgroup_root") {
+		t.Errorf("cgroup_root outside /sys/fs/cgroup: err = %v", err)
+	}
+	c = Default()
+	c.VMM.Jail.Enabled = true
+	c.VMM.Jail.UIDBase = 0
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "uid_base") {
+		t.Errorf("uid_base 0 (root) must be rejected: err = %v", err)
 	}
 }
