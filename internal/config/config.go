@@ -115,6 +115,26 @@ type Volume struct {
 type VMMConfig struct {
 	Binary    string `yaml:"binary"`    // cloud-hypervisor executable
 	Virtiofsd string `yaml:"virtiofsd"` // virtiofsd executable for volumes
+	// Jail runs each Cloud Hypervisor process as an unprivileged per-sandbox
+	// user in its own cgroup, with Landlock enabled (docs/VMM_JAIL.md).
+	Jail JailConfig `yaml:"jail"`
+}
+
+// JailConfig configures the VMM jail. It is opt-in while experimental.
+type JailConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// UIDBase/UIDCount define the host UID (and GID) range handed out to VMM
+	// processes, one per live sandbox. The range must not be used by anything
+	// else on the host.
+	UIDBase  uint32 `yaml:"uid_base"`
+	UIDCount uint32 `yaml:"uid_count"`
+	// CgroupRoot is the cgroup v2 directory under which one child cgroup per
+	// sandbox is created.
+	CgroupRoot string `yaml:"cgroup_root"`
+	// MemoryOverheadMB is added to the guest RAM size to get memory.max.
+	MemoryOverheadMB int `yaml:"memory_overhead_mb"`
+	// PidsMax caps the VMM's threads and processes (pids.max).
+	PidsMax int `yaml:"pids_max"`
 }
 
 // VolumeAllow restricts which host directories may be mounted as volumes.
@@ -177,8 +197,14 @@ func Default() *Config {
 			MaxWakesPerMinute: 6,
 			CoalesceWindow:    Duration(100 * time.Millisecond),
 		},
-		Volume:   Volume{COW: "reflink", SizeGB: 8, DiscardOnDestroy: true},
-		VMM:      VMMConfig{Binary: "cloud-hypervisor", Virtiofsd: "virtiofsd"},
+		Volume: Volume{COW: "reflink", SizeGB: 8, DiscardOnDestroy: true},
+		VMM: VMMConfig{
+			Binary: "cloud-hypervisor", Virtiofsd: "virtiofsd",
+			Jail: JailConfig{
+				UIDBase: 1_900_000_000, UIDCount: 65536,
+				CgroupRoot: "/sys/fs/cgroup/fastvm-vmm", MemoryOverheadMB: 256, PidsMax: 512,
+			},
+		},
 		Switch:   Switch{Mode: "ebpf", IsolateSandboxes: true, WakeNotify: true},
 		Defaults: Defaults{VCPUs: 2, MemoryMB: 512},
 	}
@@ -265,6 +291,18 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(domain) == "" || strings.ContainsAny(domain, " \t#;") {
 			errs = append(errs, "network.search entries must be non-empty domain names")
 			break
+		}
+	}
+	if j := c.VMM.Jail; j.Enabled {
+		if j.UIDBase == 0 || j.UIDCount == 0 || uint64(j.UIDBase)+uint64(j.UIDCount) > 1<<32-2 {
+			errs = append(errs, "vmm.jail requires uid_base>0, uid_count>0 and a range below 2^32-1")
+		}
+		if !filepath.IsAbs(j.CgroupRoot) || filepath.Clean(j.CgroupRoot) != j.CgroupRoot ||
+			!strings.HasPrefix(j.CgroupRoot, "/sys/fs/cgroup/") {
+			errs = append(errs, "vmm.jail.cgroup_root must be a clean path under /sys/fs/cgroup/")
+		}
+		if j.MemoryOverheadMB < 0 || j.PidsMax < 1 {
+			errs = append(errs, "vmm.jail requires memory_overhead_mb>=0 and pids_max>=1")
 		}
 	}
 	if c.Defaults.VCPUs < 1 || c.Defaults.MemoryMB < 64 {

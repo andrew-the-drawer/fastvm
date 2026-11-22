@@ -28,6 +28,15 @@ vmm:
   # sandbox has volumes; override with an absolute path (e.g. /usr/lib/virtiofsd)
   # when it is not on PATH.
   virtiofsd: virtiofsd
+  # Experimental: run each cloud-hypervisor as an unprivileged per-sandbox UID
+  # in its own cgroup, with Landlock. See docs/VMM_JAIL.md.
+  jail:
+    enabled: false
+    # uid_base: 1900000000
+    # uid_count: 65536
+    # cgroup_root: /sys/fs/cgroup/fastvm-vmm
+    # memory_overhead_mb: 256
+    # pids_max: 512
 
 # Host-directory volumes (virtio-fs). Each volume's host_path must be an
 # absolute path under one of these prefixes; an empty list denies all host

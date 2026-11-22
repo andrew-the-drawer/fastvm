@@ -178,10 +178,23 @@ func runDaemon(ctx context.Context, opts daemonOptions) error {
 	if sw != nil {
 		defer sw.Close()
 	}
+	var jailOpts *cloudhypervisor.JailOptions
+	if j := cfg.VMM.Jail; j.Enabled {
+		dataDir, err := filepath.Abs(cfg.DataDir)
+		if err != nil {
+			return fmt.Errorf("vmm jail: %w", err)
+		}
+		jailOpts = &cloudhypervisor.JailOptions{
+			DataDir: dataDir, UIDBase: j.UIDBase, UIDCount: j.UIDCount,
+			CgroupRoot: j.CgroupRoot, MemoryOverheadMB: j.MemoryOverheadMB, PidsMax: j.PidsMax,
+		}
+		log.Info("vmm jail enabled", "uid_base", j.UIDBase, "uid_count", j.UIDCount, "cgroup_root", j.CgroupRoot)
+	}
 	driver, err := cloudhypervisor.NewDriver(cloudhypervisor.Options{
 		Binary:    cfg.VMM.Binary,
 		Virtiofsd: cfg.VMM.Virtiofsd,
 		RunDir:    filepath.Join(cfg.DataDir, "run"),
+		Jail:      jailOpts,
 	})
 	if err != nil {
 		return fmt.Errorf("cloud hypervisor driver: %w", err)

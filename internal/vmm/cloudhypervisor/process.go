@@ -26,8 +26,9 @@ type process struct {
 
 // startProcess starts binary with args, redirecting its output to logPath.
 // The child gets its own process group so Stop can signal it without touching
-// the daemon.
-func startProcess(binary string, args []string, logPath string) (*process, error) {
+// the daemon. configure hooks run just before Start (the VMM jail uses one to
+// set credentials, the cgroup and inherited FDs).
+func startProcess(binary string, args []string, logPath string, configure ...func(*exec.Cmd)) (*process, error) {
 	if dir := filepath.Dir(logPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("cloudhypervisor: create log dir: %w", err)
@@ -41,6 +42,9 @@ func startProcess(binary string, args []string, logPath string) (*process, error
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	for _, fn := range configure {
+		fn(cmd)
+	}
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return nil, fmt.Errorf("cloudhypervisor: start %s: %w", binary, err)

@@ -19,7 +19,9 @@ browser GUI, …) are in [DESIGN.md §4](DESIGN.md#4-non-goals-through-v01).
 - **No VMM jailer.** Cloud Hypervisor ships a seccomp filter (enabled by default)
   and optional Landlock, but there is no Firecracker-style jailer. Run the daemon
   and VMM with minimal privileges; a hardened jail/namespace is part of the M7
-  hardening milestone.
+  hardening milestone. An experimental first step (`vmm.jail`: unprivileged
+  per-sandbox UID, cgroup limits, Landlock) is described in
+  [VMM_JAIL.md](VMM_JAIL.md).
 - **Host-directory volumes are static and allowlisted.** `--volume
   host:guest[:ro]` / `volumes` in the API are attached at sandbox create time;
   there is no hotplug or dynamic attach/detach. Host paths must be absolute and
