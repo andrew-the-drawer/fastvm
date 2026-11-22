@@ -63,7 +63,7 @@ scrape_configs:
     static_configs:
       - targets: ["127.0.0.1:8443"]
     tls_config:
-      ca_file: /tmp/fastvm/certs/ca.pem
+      ca_file: /tmp/fastvm/certs/ca/ca.pem
       cert_file: /tmp/fastvm/certs/client/cert.pem
       key_file: /tmp/fastvm/certs/client/key.pem
 ```

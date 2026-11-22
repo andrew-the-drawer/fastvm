@@ -14,6 +14,7 @@ make certs
 This writes:
 
 ```text
+/tmp/fastvm/certs/ca/{ca.pem,ca.key}
 /tmp/fastvm/certs/server/{ca.pem,cert.pem,key.pem}
 /tmp/fastvm/certs/client/{ca.pem,cert.pem,key.pem}
 ```
