@@ -74,3 +74,52 @@ func addEntropy(seed []byte) error {
 	}
 	return nil
 }
+
+// Reseed seed bounds. 32 bytes (256 bits) is what the daemon sends; the upper
+// bound keeps a single request from pushing an arbitrarily large buffer into
+// the kernel.
+const (
+	minReseedBytes = 16
+	maxReseedBytes = 512
+)
+
+// validateReseed checks a host-supplied reseed buffer without touching the
+// kernel, so the bounds are unit-testable without CAP_SYS_ADMIN.
+func validateReseed(seed []byte) error {
+	if len(seed) < minReseedBytes {
+		return fmt.Errorf("reseed: need at least %d bytes, got %d", minReseedBytes, len(seed))
+	}
+	if len(seed) > maxReseedBytes {
+		return fmt.Errorf("reseed: at most %d bytes allowed, got %d", maxReseedBytes, len(seed))
+	}
+	return nil
+}
+
+// reseedFromHost handles OpReseed after a snapshot restore.
+//
+// Every VM restored from one memory image wakes up with the same kernel CRNG
+// state. Cloud Hypervisor's VM Generation ID device lets a CONFIG_VMGENID guest
+// reseed on its own; this is the agent-side fallback for guests or VMMs
+// without it (see docs/SNAPSHOT_RNG.md).
+//
+// RNDADDENTROPY alone is not enough: once the CRNG is initialized, the kernel
+// only folds the input pool into the CRNG on its periodic reseed schedule
+// (up to a minute). RNDRESEEDCRNG forces that fold immediately, so the next
+// getrandom()/dev/urandom read already depends on the new bytes.
+func reseedFromHost(seed []byte) error {
+	if err := validateReseed(seed); err != nil {
+		return err
+	}
+	if err := addEntropy(seed); err != nil {
+		return err
+	}
+	f, err := os.OpenFile("/dev/urandom", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open /dev/urandom: %w", err)
+	}
+	defer f.Close()
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, f.Fd(), unix.RNDRESEEDCRNG, 0); errno != 0 {
+		return fmt.Errorf("RNDRESEEDCRNG: %w", errno)
+	}
+	return nil
+}

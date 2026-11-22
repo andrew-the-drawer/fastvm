@@ -28,6 +28,12 @@ fastvmctl run --from-snapshot dev-20261121-001234 --name dev2
 The restored sandbox gets a new TAP/IP and hostname. The source snapshot is not
 modified, and multiple sandboxes can be restored from it.
 
+Every sandbox restored from one snapshot starts from the same guest memory,
+including RNG state. The guest kernel RNG is reseeded on restore (Cloud
+Hypervisor's VM Generation ID plus an agent reseed), but secrets and random
+state that userspace generated *before* the snapshot are shared by all copies.
+See [SNAPSHOT_RNG.md](SNAPSHOT_RNG.md).
+
 ### Restore restrictions
 
 `run --from-snapshot` cannot be combined with:

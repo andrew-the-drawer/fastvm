@@ -27,6 +27,10 @@ const (
 	OpFileWrite = "file_write"
 	OpWorkload  = "workload" // guest -> host event
 	OpHeartbeat = "heartbeat"
+	// OpReseed mixes host-supplied random bytes into the guest kernel RNG and
+	// forces an immediate CRNG reseed. The daemon sends it after a snapshot
+	// restore so clones of one memory image stop sharing RNG state.
+	OpReseed = "reseed"
 )
 
 // Event type names pushed guest -> host. They are carried in Event.Type.
@@ -115,6 +119,8 @@ type Client interface {
 	SetNetwork(ctx context.Context, address, gateway string) error
 	// SetHostname renames the guest after a snapshot restore.
 	SetHostname(ctx context.Context, hostname string) error
+	// Reseed mixes seed into the guest kernel RNG and forces a CRNG reseed.
+	Reseed(ctx context.Context, seed []byte) error
 	// Touch reports explicit guest activity.
 	Touch(ctx context.Context) error
 	// Events streams agent events until the channel closes.

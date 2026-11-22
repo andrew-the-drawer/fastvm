@@ -10,6 +10,7 @@
 | [`.fvmfile` configs](FVMFILE.md) | Declarative sandbox configs and examples |
 | [Auto-publishing ports](AUTO_PUBLISH.md) | Discover guest TCP listeners and publish them on loopback |
 | [Snapshots](SNAPSHOT.md) | Save and restore sandbox memory, device state, and writable disk |
+| [Snapshot clones and randomness](SNAPSHOT_RNG.md) | Why restored clones share RNG state, what VMGenID and the agent reseed fix, and what they cannot |
 | [Sandbox lifecycle](LIFECYCLE.md) | Running, idle, paused, dormant, wake, and auto-sleep |
 | [REST API](API.md) | Unix socket and optional TCP REST transport with mTLS |
 | [Prometheus metrics](METRICS.md) | Daemon and per-sandbox metrics, scrape config |
