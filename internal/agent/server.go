@@ -205,6 +205,11 @@ func (s *Server) dispatch(ctx context.Context, c *conn, req Request) {
 			resp.ExitCode = -1
 			resp.Error = err.Error()
 		}
+	case OpReseed:
+		if err := reseedFromHost(req.Data); err != nil {
+			resp.ExitCode = -1
+			resp.Error = err.Error()
+		}
 	case OpSignal:
 		if err := s.signal(req.Signal); err != nil {
 			resp.ExitCode = -1

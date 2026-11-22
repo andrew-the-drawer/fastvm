@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"fastvm/internal/agent"
 	"fastvm/internal/manager"
 	"fastvm/internal/network"
 	"fastvm/internal/types"
@@ -353,6 +355,7 @@ func (d *Daemon) restoreLocked(ctx context.Context, rt *runtime, cid uint32) err
 		sb.Error = err.Error()
 		return err
 	}
+	d.reseedRestoredGuest(ctx, sb.ID, ac)
 	if err := ac.SetHostname(ctx, sb.ID[:min(12, len(sb.ID))]); err != nil {
 		d.log.Warn("rename restored guest failed", "sandbox", sb.ID, "err", err)
 	}
@@ -373,6 +376,34 @@ func (d *Daemon) restoreLocked(ctx context.Context, rt *runtime, cid uint32) err
 	_ = d.persistLocked(ctx, rt, sb)
 	d.event(ctx, sb.ID, "state", "sandbox restored")
 	return nil
+}
+
+// reseedBytes is how much fresh host randomness a restored guest receives.
+const reseedBytes = 32
+
+// reseedRestoredGuest gives a guest restored from a snapshot its own kernel RNG
+// state. Every VM restored from one memory image resumes with an identical
+// CRNG, so without a reseed sibling clones (and the parent) can produce the
+// same /dev/urandom and getrandom() output. Cloud Hypervisor's VM Generation
+// ID device already triggers a reseed in CONFIG_VMGENID guests; this is
+// defense in depth for kernels or VMMs without it. See docs/SNAPSHOT_RNG.md.
+//
+// Failure is not fatal: the snapshot may hold an older agent that predates
+// OpReseed (the agent binary running after restore is the one captured in
+// guest memory), so the restore proceeds and the gap is recorded as an event.
+func (d *Daemon) reseedRestoredGuest(ctx context.Context, id string, ac agent.Client) {
+	seed := make([]byte, reseedBytes)
+	if _, err := rand.Read(seed); err != nil {
+		d.log.Warn("generate reseed entropy failed", "sandbox", id, "err", err)
+		d.event(ctx, id, "warning", "guest RNG not reseeded after restore: host RNG failed")
+		return
+	}
+	if err := ac.Reseed(ctx, seed); err != nil {
+		d.log.Warn("reseed restored guest failed", "sandbox", id, "err", err)
+		d.event(ctx, id, "warning", fmt.Sprintf("guest RNG not reseeded by agent after restore (relying on VMGenID): %v", err))
+		return
+	}
+	d.event(ctx, id, "state", "guest RNG reseeded after restore")
 }
 
 var snapshotHostnameRE = hostnameArgRE // keep regexp compiled once

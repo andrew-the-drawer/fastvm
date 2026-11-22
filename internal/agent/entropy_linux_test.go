@@ -24,3 +24,31 @@ func TestParseSeedFromCmdline(t *testing.T) {
 		t.Fatal("expected hex decode error")
 	}
 }
+
+func TestValidateReseedBounds(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		ok   bool
+		name string
+	}{
+		{0, false, "empty"},
+		{minReseedBytes - 1, false, "too short"},
+		{minReseedBytes, true, "minimum"},
+		{32, true, "daemon default"},
+		{maxReseedBytes, true, "maximum"},
+		{maxReseedBytes + 1, false, "too long"},
+	} {
+		err := validateReseed(make([]byte, tc.n))
+		if (err == nil) != tc.ok {
+			t.Errorf("%s (%d bytes): err = %v, want ok=%t", tc.name, tc.n, err, tc.ok)
+		}
+	}
+}
+
+// reseedFromHost must reject bad input before it opens /dev/urandom, so an
+// invalid request from the host can never reach the kernel ioctls.
+func TestReseedFromHostRejectsBeforeKernel(t *testing.T) {
+	if err := reseedFromHost(nil); err == nil {
+		t.Fatal("expected error for empty seed")
+	}
+}

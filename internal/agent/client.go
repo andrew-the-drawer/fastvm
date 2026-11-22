@@ -480,6 +480,19 @@ func (cl *client) SetHostname(ctx context.Context, hostname string) error {
 	return nil
 }
 
+// Reseed mixes seed into the guest kernel RNG and forces a CRNG reseed. It is
+// sent after a snapshot restore; see docs/SNAPSHOT_RNG.md.
+func (cl *client) Reseed(ctx context.Context, seed []byte) error {
+	resp, err := cl.request(ctx, Request{Op: OpReseed, Data: seed})
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("agent: reseed: %s", resp.Error)
+	}
+	return nil
+}
+
 // Touch reports explicit guest activity.
 func (cl *client) Touch(ctx context.Context) error {
 	resp, err := cl.request(ctx, Request{Op: OpTouch})

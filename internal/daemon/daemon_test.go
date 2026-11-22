@@ -253,6 +253,8 @@ type fakeAgent struct {
 	closed    bool
 	stdout    string
 	exitErr   error
+	reseeds   [][]byte
+	reseedErr error
 }
 
 func newFakeAgent() *fakeAgent {
@@ -331,14 +333,22 @@ func (a *fakeAgent) SetEnv(_ context.Context, env map[string]string) error {
 func (a *fakeAgent) Touch(context.Context) error                      { return nil }
 func (a *fakeAgent) SetNetwork(context.Context, string, string) error { return nil }
 func (a *fakeAgent) SetHostname(context.Context, string) error        { return nil }
-func (a *fakeAgent) Events() <-chan agent.Event                       { return a.events }
-func (a *fakeAgent) Close() error                                     { a.mu.Lock(); a.closed = true; a.mu.Unlock(); return nil }
-func (a *fakeAgent) execCount() int                                   { a.mu.Lock(); defer a.mu.Unlock(); return len(a.execs) }
+func (a *fakeAgent) Reseed(_ context.Context, seed []byte) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reseeds = append(a.reseeds, append([]byte(nil), seed...))
+	return a.reseedErr
+}
+func (a *fakeAgent) Events() <-chan agent.Event { return a.events }
+func (a *fakeAgent) Close() error               { a.mu.Lock(); a.closed = true; a.mu.Unlock(); return nil }
+func (a *fakeAgent) execCount() int             { a.mu.Lock(); defer a.mu.Unlock(); return len(a.execs) }
 
 type fakeDialer struct {
 	mu     sync.Mutex
 	agents []*fakeAgent
 	err    error
+	// next, when set, configures each newly dialed agent before it is used.
+	next func(*fakeAgent)
 }
 
 func (d *fakeDialer) Dial(context.Context, string, uint32) (agent.Client, error) {
@@ -347,6 +357,9 @@ func (d *fakeDialer) Dial(context.Context, string, uint32) (agent.Client, error)
 	}
 	a := newFakeAgent()
 	d.mu.Lock()
+	if d.next != nil {
+		d.next(a)
+	}
 	d.agents = append(d.agents, a)
 	d.mu.Unlock()
 	return a, nil
