@@ -1,6 +1,6 @@
 # Docker-in-VM sandbox.
 #
-#   fastvmctl run -d -f hack/docker.fvmfile
+#   fastvmctl run -d -f examples/docker.fvmfile
 #   fastvmctl exec docker -- docker info
 #   fastvmctl exec docker -- docker run --rm --network host hello-world
 #

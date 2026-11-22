@@ -1,0 +1,8 @@
+{
+  "name": "fastvm-chrome-headless-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

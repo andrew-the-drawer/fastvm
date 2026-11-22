@@ -55,7 +55,7 @@ key and `--volume` overrides a matching guest path.
 ```sh
 fastvmctl run --net --image alpine -- uname -a
 fastvmctl run --net -it --image alpine -- /bin/sh
-fastvmctl run -f hack/codex.fvmfile
+fastvmctl run -f examples/coding-agents/codex.fvmfile
 fastvmctl run --image alpine --name agent --no-start
 fastvmctl run --from-snapshot original-vm-20261119-182000 --name copy-1
 ```

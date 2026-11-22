@@ -4,17 +4,17 @@
 rejected so typos are caught early. Load one with:
 
 ```sh
-fastvmctl run -f hack/codex.fvmfile
-fastvmctl run -f hack/codex.fvmfile -it
-fastvmctl run -f hack/codex.fvmfile -d
+fastvmctl run -f examples/coding-agents/codex.fvmfile
+fastvmctl run -f examples/coding-agents/codex.fvmfile -it
+fastvmctl run -f examples/coding-agents/codex.fvmfile -d
 # Claude example:
-fastvmctl run -f hack/claude.fvmfile -it
+fastvmctl run -f examples/coding-agents/claude.fvmfile -it
 # GitHub Copilot example:
-fastvmctl run -f hack/copilot.fvmfile -it
+fastvmctl run -f examples/coding-agents/copilot.fvmfile -it
 # Node.js REPL example:
-fastvmctl run -f hack/nodejs.fvmfile -it
+fastvmctl run -f examples/nodejs.fvmfile -it
 # Docker-in-VM example:
-fastvmctl run -d -f hack/docker.fvmfile
+fastvmctl run -d -f examples/docker.fvmfile
 ```
 
 ## Example
@@ -100,7 +100,7 @@ path in the guest.
 - `--entrypoint <cmd>` overrides `entrypoint` for one run, like Docker:
 
 ```sh
-fastvmctl run -f hack/copilot.fvmfile -it --entrypoint bash
+fastvmctl run -f examples/coding-agents/copilot.fvmfile -it --entrypoint bash
 ```
 
 | .fvmfile | CLI | Final argv |

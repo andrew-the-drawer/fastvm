@@ -1,7 +1,7 @@
 # GitHub Copilot CLI coding-agent sandbox.
 #
 #   export GITHUB_TOKEN=...
-#   fastvmctl run -f hack/copilot.fvmfile -it
+#   fastvmctl run -f examples/coding-agents/copilot.fvmfile -it
 #
 # Starts from the normal Node.js image and installs the Copilot CLI on first boot.
 version: 1

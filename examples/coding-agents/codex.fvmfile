@@ -1,7 +1,7 @@
 # OpenAI Codex coding-agent sandbox.
 #
 #   export OPENAI_API_KEY=...
-#   fastvmctl run -f hack/codex.fvmfile -it
+#   fastvmctl run -f examples/coding-agents/codex.fvmfile -it
 #
 # Starts from the normal Node.js image and installs the Codex CLI on first boot.
 version: 1

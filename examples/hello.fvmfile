@@ -1,5 +1,5 @@
 # Minimal declarative sandbox. Run with:
-#   fastvmctl run -f hack/hello.fvmfile
+#   fastvmctl run -f examples/hello.fvmfile
 version: 1
 name: hello
 image: busybox:latest

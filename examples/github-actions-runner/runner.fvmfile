@@ -1,0 +1,26 @@
+# Self-hosted GitHub Actions runner.
+#
+#   export RUNNER_TOKEN=...   # repository runner registration token
+#   export REPO_URL=https://github.com/org/repo
+#   fastvmctl run -d -f examples/github-actions-runner/runner.fvmfile
+#
+# Use a short-lived runner registration token, never a PAT.
+version: 1
+name: github-runner
+image: ghcr.io/actions/actions-runner:latest
+entrypoint: ["/home/runner/run.sh"]
+
+env:
+  RUNNER_TOKEN: "${RUNNER_TOKEN}"
+  REPO_URL: "${REPO_URL}"
+  RUNNER_NAME: "fastvm-runner"
+  RUNNER_ALLOW_RUNASROOT: "1"
+
+network:
+  enabled: true
+
+resources:
+  vcpus: 4
+  memory_mb: 4096
+
+no_auto_sleep: true

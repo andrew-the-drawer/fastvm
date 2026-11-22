@@ -1,0 +1,30 @@
+# Headless Chromium with the DevTools protocol on port 9222.
+#
+#   fastvmctl run -d -f examples/chrome-headless/chrome.fvmfile
+#   fastvmctl get chrome
+#
+# auto_publish exposes the discovered CDP listener on 127.0.0.1:9222.
+version: 1
+name: chrome
+image: zenika/alpine-chrome:latest
+entrypoint:
+  - chromium-browser
+  - --headless=old
+  - --no-sandbox
+  - --disable-dev-shm-usage
+  - --remote-debugging-address=0.0.0.0
+  - --remote-debugging-port=9222
+  - about:blank
+
+# Chrome's new headless mode binds DevTools only to localhost; old headless
+# honors --remote-debugging-address so auto-publish can reach it.
+
+network:
+  enabled: true
+  auto_publish: true
+
+resources:
+  vcpus: 2
+  memory_mb: 2048
+
+no_auto_sleep: true

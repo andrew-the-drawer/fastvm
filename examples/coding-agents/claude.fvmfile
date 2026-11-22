@@ -1,7 +1,7 @@
 # Anthropic Claude Code coding-agent sandbox.
 #
 #   export ANTHROPIC_API_KEY=...
-#   fastvmctl run -f hack/claude.fvmfile -it
+#   fastvmctl run -f examples/coding-agents/claude.fvmfile -it
 #
 # Starts from the normal Node.js image and installs Claude Code on first boot.
 version: 1

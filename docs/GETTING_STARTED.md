@@ -322,19 +322,19 @@ Reusable sandboxes can be described in a strict YAML `.fvmfile` and launched
 with `fastvmctl run -f`:
 
 ```sh
-bin/fastvmctl run -f hack/hello.fvmfile
-bin/fastvmctl run -f hack/codex.fvmfile -it
+bin/fastvmctl run -f examples/hello.fvmfile
+bin/fastvmctl run -f examples/coding-agents/codex.fvmfile -it
 ```
 
-Examples live next to the repo tooling:
+Examples live under `examples/`:
 
-- [`hack/hello.fvmfile`](../hack/hello.fvmfile) — minimal image + command
-- [`hack/codex.fvmfile`](../hack/codex.fvmfile) — OpenAI Codex coding-agent shape
+- [`examples/hello.fvmfile`](../examples/hello.fvmfile) — minimal image + command
+- [`examples/coding-agents/codex.fvmfile`](../examples/coding-agents/codex.fvmfile) — OpenAI Codex coding-agent shape
   with env/network/resource settings
-- [`hack/claude.fvmfile`](../hack/claude.fvmfile) — Anthropic Claude Code shape
-- [`hack/copilot.fvmfile`](../hack/copilot.fvmfile) — GitHub Copilot CLI shape
-- [`hack/nodejs.fvmfile`](../hack/nodejs.fvmfile) — Node.js REPL sandbox
-- [`hack/docker.fvmfile`](../hack/docker.fvmfile) — Docker-in-VM (dind) sandbox; the pinned kernel has no iptables/bridge modules, so dockerd runs with `--bridge=none --iptables=false` and nested containers use `--network host`
+- [`examples/coding-agents/claude.fvmfile`](../examples/coding-agents/claude.fvmfile) — Anthropic Claude Code shape
+- [`examples/coding-agents/copilot.fvmfile`](../examples/coding-agents/copilot.fvmfile) — GitHub Copilot CLI shape
+- [`examples/nodejs.fvmfile`](../examples/nodejs.fvmfile) — Node.js REPL sandbox
+- [`examples/docker.fvmfile`](../examples/docker.fvmfile) — Docker-in-VM (dind) sandbox; the pinned kernel has no iptables/bridge modules, so dockerd runs with `--bridge=none --iptables=false` and nested containers use `--network host`
 
 The file supports `image`, `command`, `env` (`${HOST_VAR}` expansion), host
 volumes, published ports, network/allowlist, vCPU/memory, and auto-sleep

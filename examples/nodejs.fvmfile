@@ -1,6 +1,6 @@
 # Node.js sandbox.
 #
-#   fastvmctl run -f hack/nodejs.fvmfile -it     # Node REPL
+#   fastvmctl run -f examples/nodejs.fvmfile -it     # Node REPL
 #
 # The official Node image is built into a bootable disk on demand.
 version: 1
