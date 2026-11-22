@@ -56,9 +56,9 @@ func TestCLIOverUnixSocket(t *testing.T) {
 	}
 	id := fields[0]
 
-	if out := run("ls"); !strings.Contains(out, "cli-e2e") ||
+	if out := run("ps"); !strings.Contains(out, "cli-e2e") ||
 		(!strings.Contains(out, "Running") && !strings.Contains(out, "Idle")) {
-		t.Fatalf("ls output = %q", out)
+		t.Fatalf("ps output = %q", out)
 	}
 	if out := run("get", "cli-e2e"); !strings.Contains(out, id) {
 		t.Fatalf("get by name = %q", out)
@@ -92,12 +92,12 @@ func TestCLIOverUnixSocket(t *testing.T) {
 	}
 
 	run("rm", id)
-	if out := run("ls"); strings.Contains(out, "cli-e2e") {
+	if out := run("ps"); strings.Contains(out, "cli-e2e") {
 		t.Fatalf("sandbox still listed: %q", out)
 	}
 
 	if out := run("image", "ls"); !strings.Contains(out, "alpine:cli") {
-		t.Fatalf("image ls output = %q", out)
+		t.Fatalf("image ps output = %q", out)
 	}
 	run("image", "rm", base.Identity())
 	if out := run("image", "ls"); strings.Contains(out, "alpine:cli") {

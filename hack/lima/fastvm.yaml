@@ -1,0 +1,42 @@
+# Lima template for running fastvmd on macOS (docs/MACOS.md).
+#
+# fastvm needs KVM, so on a Mac it runs inside a Linux VM with nested
+# virtualization (Apple Silicon M3 or newer, macOS 15+). Do not start this
+# template directly; use the wrapper, which also builds the binaries, mounts the
+# checkout, provisions the VM, and starts the daemon:
+#
+#   make mac-up        # or: hack/lima/fastvm-lima.sh up
+
+minimumLimaVersion: 2.0.0
+
+vmType: vz
+arch: aarch64
+# Exposes /dev/kvm inside the guest; Cloud Hypervisor runs nested on top.
+nestedVirtualization: true
+
+cpus: 4
+memory: 8GiB
+# Holds the sparse XFS image for CoW runtime volumes plus image caches.
+disk: 60GiB
+
+# Debian 13 via Lima's own digest-pinned image list. Not Ubuntu 24.04: its
+# virtiofsd 1.10 lacks --readonly, which read-only host volumes need.
+base:
+  - template:_images/debian-13
+
+# Mounted at the same paths as on the Mac, so host-directory volumes
+# (`fastvmctl run -v ~/src:/src`) resolve inside the VM. The wrapper adds the
+# repository checkout when it is not under $HOME.
+mountType: virtiofs
+mounts:
+  - location: "~"
+    writable: false
+  - location: /tmp/lima
+    writable: true
+
+containerd:
+  system: false
+  user: false
+
+# The daemon's mTLS API listens on guest 127.0.0.1:8443; Lima's default port
+# forwarding exposes it on the Mac's 127.0.0.1:8443 for the native fastvmctl.

@@ -48,14 +48,14 @@ func runShell(ref string, argv []string, extraEnv map[string]string) error {
 	}
 	rows, cols := uint16(24), uint16(80)
 	stdinFd := int(os.Stdin.Fd())
-	termios, _ := unix.IoctlGetTermios(stdinFd, unix.TCGETS)
+	termios, _ := unix.IoctlGetTermios(stdinFd, ioctlGetTermios)
 	interactive := termios != nil
 	if interactive {
 		if ws, err := unix.IoctlGetWinsize(stdinFd, unix.TIOCGWINSZ); err == nil && ws.Row > 0 && ws.Col > 0 {
 			rows, cols = ws.Row, ws.Col
 		}
 		if raw, err := makeRaw(stdinFd); err == nil {
-			defer func() { _ = unix.IoctlSetTermios(stdinFd, unix.TCSETS, raw) }()
+			defer func() { _ = unix.IoctlSetTermios(stdinFd, ioctlSetTermios, raw) }()
 		}
 	}
 
@@ -166,7 +166,7 @@ func runShell(ref string, argv []string, extraEnv map[string]string) error {
 
 // makeRaw puts fd into raw mode and returns the previous settings.
 func makeRaw(fd int) (*unix.Termios, error) {
-	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	old, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func makeRaw(fd int) (*unix.Termios, error) {
 	raw.Lflag &^= unix.ECHO | unix.ICANON | unix.IEXTEN | unix.ISIG
 	raw.Cc[unix.VMIN] = 1
 	raw.Cc[unix.VTIME] = 0
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
+	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, &raw); err != nil {
 		return nil, err
 	}
 	return old, nil

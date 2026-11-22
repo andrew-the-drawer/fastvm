@@ -69,7 +69,7 @@ func TestBootArgsDefaultsAndNoVolumes(t *testing.T) {
 	if !strings.Contains(joined, "size=512M") || !strings.Contains(joined, "boot=2") {
 		t.Errorf("defaults not applied: %s", joined)
 	}
-	if !strings.Contains(joined, "console=ttyS0 root=/dev/vda rw init=/init") {
+	if !strings.Contains(joined, vmm.BaseCmdline()) {
 		t.Errorf("default cmdline not applied: %s", joined)
 	}
 }

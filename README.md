@@ -110,17 +110,24 @@ Setup, OIDC, the exec terminal and API details live in [console/README.md](conso
 
 ## Requirements
 
-Linux x86_64 with KVM, [Cloud Hypervisor](https://www.cloudhypervisor.org/)
+Linux (x86_64 or arm64) with KVM, [Cloud Hypervisor](https://www.cloudhypervisor.org/)
 v54+ (`cloud-hypervisor`, or the static build `cloud-hypervisor-static`),
-virtiofsd ≥ 1.10 (only for host-directory volumes), and Go 1.24+ to build. The
+virtiofsd ≥ 1.10 for host-directory volumes (≥ 1.13 for read-only `:ro`
+volumes), and Go 1.24+ to build. The
 daemon needs root/`CAP_NET_ADMIN` for TAP/veth/nftables; `CAP_BPF` enables the
 eBPF switch, otherwise it falls back to the Linux bridge. Images are pulled
 directly from OCI registries; no Docker daemon or CLI is required.
+
+**macOS:** on Apple Silicon M3+ with macOS 15+, `make mac-up` runs the daemon in
+a Lima VM with nested virtualization and builds a native `fastvmctl` for it; a
+native Virtualization.framework backend is planned. See
+[docs/MACOS.md](docs/MACOS.md).
 
 ## Documentation
 
 | Document | What it covers |
 |---|---|
+| [macOS](docs/MACOS.md) | Run on a Mac via Lima + nested virtualization; native backend plan |
 | [Getting started](docs/GETTING_STARTED.md) | Build, config, images, sandboxes, shell, wake-on-network, testing, troubleshooting |
 | [Design](docs/DESIGN.md) | Goals, architecture, lifecycle, storage, networking, security, roadmap |
 | [CoW volumes](docs/SETUP_COW_VOLUME.md) | Loopback XFS setup, reflink verification |

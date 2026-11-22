@@ -1555,7 +1555,7 @@ func entropySeed() string {
 // configure eth0 before starting the workload, and fastvm.seed to credit the
 // kernel random pool (otherwise getrandom can block in a fresh microVM).
 func bootCmdline(sb *types.Sandbox, seed string, guest guestBootFiles) string {
-	cmd := "console=ttyS0 root=/dev/vda rw init=/init"
+	cmd := vmm.BaseCmdline()
 	for i, vol := range sb.Volumes {
 		mode := "rw"
 		if vol.ReadOnly {

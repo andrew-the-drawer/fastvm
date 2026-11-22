@@ -264,7 +264,7 @@ func TestDaemonLifecycleRealVM(t *testing.T) {
 	if got.State != types.StateDormant {
 		t.Fatalf("state after offload = %s", got.State)
 	}
-	if _, err := os.Stat(filepath.Join(got.SnapshotDir, "mem")); err != nil {
+	if _, err := os.Stat(filepath.Join(got.SnapshotDir, "memory-ranges")); err != nil {
 		t.Fatalf("memory image missing: %v", err)
 	}
 	if err := s.d.Wake(ctx, sb.ID); err != nil {

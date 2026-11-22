@@ -65,7 +65,7 @@ func TestDaemonBinarySmoke(t *testing.T) {
 	if out := runCLI("image", "ls"); !strings.Contains(out, "TAG") {
 		t.Fatalf("images = %q", out)
 	}
-	if out := runCLI("ls"); !strings.Contains(out, "ID") {
+	if out := runCLI("ps"); !strings.Contains(out, "ID") {
 		t.Fatalf("ls = %q", out)
 	}
 
